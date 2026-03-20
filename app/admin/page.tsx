@@ -194,14 +194,21 @@ export default function AdminDashboard() {
                   <h3 className="text-lg font-black text-gray-900 truncate">{restaurant.title}</h3>
                   <p className="text-xs text-gray-400 mt-1 mb-4">Price: ¥{restaurant.restaurant_price || 'N/A'}</p>
                   
+                  {/* NEW BUTTON LAYOUT WITH REJECT/DELETE */}
                   <div className="flex gap-2 mt-auto">
-                    <button onClick={() => setEditingData(restaurant)} className="flex-1 bg-blue-50 text-blue-600 text-sm font-bold py-2 rounded-lg hover:bg-blue-100 transition">
-                      ✏️ Edit Details
+                    <button onClick={() => setEditingData(restaurant)} className="flex-1 bg-blue-50 text-blue-600 text-xs font-bold py-2 rounded-lg hover:bg-blue-100 transition">
+                      ✏️ Edit
                     </button>
                     {activeTab === 'directory' ? (
-                      <button onClick={() => updateStatus(restaurant.id, 'pending', restaurant.title)} className="flex-1 bg-yellow-50 text-yellow-700 text-sm font-bold py-2 rounded-lg hover:bg-yellow-100">Unpublish</button>
+                      <>
+                        <button onClick={() => updateStatus(restaurant.id, 'pending', restaurant.title)} className="flex-1 bg-yellow-50 text-yellow-700 text-xs font-bold py-2 rounded-lg hover:bg-yellow-100">Unpublish</button>
+                        <button onClick={() => deleteRestaurant(restaurant.id, restaurant.title)} className="flex-1 bg-red-50 text-red-600 text-xs font-bold py-2 rounded-lg hover:bg-red-100">Delete</button>
+                      </>
                     ) : (
-                      <button onClick={() => updateStatus(restaurant.id, 'approved', restaurant.title)} className="flex-1 bg-green-50 text-green-700 text-sm font-bold py-2 rounded-lg hover:bg-green-100">Approve</button>
+                      <>
+                        <button onClick={() => updateStatus(restaurant.id, 'approved', restaurant.title)} className="flex-1 bg-green-50 text-green-700 text-xs font-bold py-2 rounded-lg hover:bg-green-100">Approve</button>
+                        <button onClick={() => deleteRestaurant(restaurant.id, restaurant.title)} className="flex-1 bg-red-50 text-red-600 text-xs font-bold py-2 rounded-lg hover:bg-red-100">Reject</button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -364,9 +371,10 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              {/* 4. LOCATION & CONTACT */}
+              {/* 4. LOCATION & CONTACT (Public & Private) */}
               <section>
                 <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">4. Location & Contact Data</h3>
+                
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Public Address</label>
@@ -401,9 +409,10 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              {/* 5. OPERATIONS & INTERNAL NOTES */}
+              {/* 5. OPERATIONS & SERVICES */}
               <section>
-                <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">5. Operations & Notes</h3>
+                <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">5. Operations & Services</h3>
+                
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Budget (Number)</label>
@@ -417,10 +426,17 @@ export default function AdminDashboard() {
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Avg Stay Time</label>
                     <input type="text" value={editingData.avg_stay_time || ''} onChange={(e) => setEditingData({...editingData, avg_stay_time: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl" />
                   </div>
-                  <div className="flex items-center pt-6">
+                  
+                  <div className="flex items-center pt-6 gap-4 col-span-2 md:col-span-1">
                     <label className="flex items-center cursor-pointer">
                       <input type="checkbox" checked={editingData.atom_currency || false} onChange={(e) => setEditingData({...editingData, atom_currency: e.target.checked})} className="h-5 w-5 accent-orange-600 mr-2" />
                       <span className="text-sm font-bold text-gray-800">Atom Currency</span>
+                    </label>
+                  </div>
+                  <div className="flex items-center pt-6 gap-4 col-span-2 md:col-span-1">
+                     <label className="flex items-center cursor-pointer p-2 bg-pink-50 rounded-lg border border-pink-100">
+                      <input type="checkbox" checked={editingData.participates_in_event || false} onChange={(e) => setEditingData({...editingData, participates_in_event: e.target.checked})} className="h-5 w-5 accent-pink-600 mr-2" />
+                      <span className="text-sm font-bold text-pink-900">Event Active</span>
                     </label>
                   </div>
                 </div>

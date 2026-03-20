@@ -2,8 +2,10 @@ import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 
-// This forces Next.js to always fetch fresh data (bypassing the cache)
+// THE ULTIMATE CACHE BUSTERS
 export const dynamic = 'force-dynamic';
+export const revalidate = 0;
+export const fetchCache = 'force-no-store';
 
 export default async function RestaurantPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
