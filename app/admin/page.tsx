@@ -8,10 +8,14 @@ export default function AdminDashboard() {
   const [passwordInput, setPasswordInput] = useState('');
   const ADMIN_PASSWORD = 'waseda2026';
 
-  const [activeTab, setActiveTab] = useState<'directory' | 'pending'>('directory');
+  const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'categories'>('directory');
   const [loading, setLoading] = useState(true);
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
   const [liveRestaurants, setLiveRestaurants] = useState<any[]>([]);
+
+  // States for dynamic CMS categories
+  const [customCategories, setCustomCategories] = useState<any[]>([]);
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   const [editingData, setEditingData] = useState<any | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -23,21 +27,44 @@ export default function AdminDashboard() {
   const fetchAllData = async () => {
     setLoading(true);
     
-    // Fetch both simultaneously, but only pull exactly what we need
-    const [pending, approved] = await Promise.all([
+    // Fetch pending, approved, AND custom categories simultaneously using Promise.all
+    const [pending, approved, categories] = await Promise.all([
       supabase.from('restaurants').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
-      supabase.from('restaurants').select('*').eq('status', 'approved').order('created_at', { ascending: false })
+      supabase.from('restaurants').select('*').eq('status', 'approved').order('created_at', { ascending: false }),
+      supabase.from('custom_categories').select('*').order('created_at', { ascending: true })
     ]);
 
     if (pending.data) setPendingSubmissions(pending.data);
     if (approved.data) setLiveRestaurants(approved.data);
+    if (categories.data) setCustomCategories(categories.data);
     
     if (pending.error) console.error("Pending error:", pending.error);
     if (approved.error) console.error("Approved error:", approved.error);
+    if (categories.error) console.error("Categories error:", categories.error);
     
     setLoading(false);
   };
 
+  // --- Category Logic ---
+  const addCategory = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newCategoryName.trim()) return;
+    
+    const { error } = await supabase.from('custom_categories').insert([{ name: newCategoryName.trim() }]);
+    if (error) alert('Error adding category: ' + error.message);
+    else {
+      setNewCategoryName('');
+      fetchAllData();
+    }
+  };
+
+  const deleteCategory = async (id: string, name: string) => {
+    if (!confirm(`Delete category "${name}"? This will remove it from the CMS options.`)) return;
+    await supabase.from('custom_categories').delete().eq('id', id);
+    fetchAllData();
+  };
+
+  // --- Restaurant Action Logic ---
   const updateStatus = async (id: string, newStatus: string, title: string) => {
     const action = newStatus === 'approved' ? 'publish' : 'unpublish';
     if (!confirm(`Are you sure you want to ${action} "${title}"?`)) return;
@@ -70,7 +97,7 @@ export default function AdminDashboard() {
     setUploadingImage(false);
   };
 
-  // Helper to toggle array values in the editor (Cuisine, Restrictions, etc.)
+  // Helper to toggle array values in the editor (Cuisine, Restrictions, Custom Categories, etc.)
   const toggleEditArray = (field: string, value: string) => {
     const currentArray = editingData[field] || [];
     if (currentArray.includes(value)) {
@@ -111,40 +138,77 @@ export default function AdminDashboard() {
         <button onClick={() => setIsAuthenticated(false)} className="text-sm font-bold text-gray-500 hover:text-gray-900">Logout</button>
       </div>
 
-      <div className="flex gap-4 mb-8">
-        <button onClick={() => setActiveTab('directory')} className={`px-6 py-2 rounded-full font-bold text-sm transition ${activeTab === 'directory' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+      {/* --- CMS TABS --- */}
+      <div className="flex flex-wrap gap-4 mb-8">
+        <button onClick={() => setActiveTab('directory')} className={`px-6 py-2 rounded-full font-bold text-sm transition ${activeTab === 'directory' ? 'bg-orange-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
           Live Directory ({liveRestaurants.length})
         </button>
-        <button onClick={() => setActiveTab('pending')} className={`px-6 py-2 rounded-full font-bold text-sm transition ${activeTab === 'pending' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600'}`}>
+        <button onClick={() => setActiveTab('pending')} className={`px-6 py-2 rounded-full font-bold text-sm transition ${activeTab === 'pending' ? 'bg-orange-600 text-white shadow-md' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
           Pending Approvals ({pendingSubmissions.length})
+        </button>
+        <button onClick={() => setActiveTab('categories')} className={`px-6 py-2 rounded-full font-bold text-sm transition ${activeTab === 'categories' ? 'bg-purple-600 text-white shadow-md' : 'bg-purple-50 text-purple-700 hover:bg-purple-100'}`}>
+          ⚙️ Manage Categories
         </button>
       </div>
 
       {loading ? (
          <div className="text-center py-20 animate-pulse text-gray-500 font-bold">Loading Database...</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {(activeTab === 'directory' ? liveRestaurants : pendingSubmissions).map(restaurant => (
-            <div key={restaurant.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
-              {restaurant.image_url && (
-                <img src={restaurant.image_url} alt="Cover" className="w-full h-32 object-cover rounded-xl mb-4 bg-gray-100" />
-              )}
-              <h3 className="text-lg font-black text-gray-900 truncate">{restaurant.title}</h3>
-              <p className="text-xs text-gray-400 mt-1 mb-4">Price: ¥{restaurant.restaurant_price || 'N/A'}</p>
+        <>
+          {/* --- TAB: MANAGE CATEGORIES --- */}
+          {activeTab === 'categories' && (
+            <div className="max-w-2xl bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
+              <h2 className="text-2xl font-black mb-2">Dynamic CMS Categories</h2>
+              <p className="text-gray-500 text-sm mb-8">Add global tags here (like "Stamp Rally" or "Spring Festival"). They will automatically become checkboxes in the Restaurant Editor and filters on the public site.</p>
               
-              <div className="flex gap-2 mt-auto">
-                <button onClick={() => setEditingData(restaurant)} className="flex-1 bg-blue-50 text-blue-600 text-sm font-bold py-2 rounded-lg hover:bg-blue-100 transition">
-                  ✏️ Edit Details
-                </button>
-                {activeTab === 'directory' ? (
-                  <button onClick={() => updateStatus(restaurant.id, 'pending', restaurant.title)} className="flex-1 bg-yellow-50 text-yellow-700 text-sm font-bold py-2 rounded-lg hover:bg-yellow-100">Unpublish</button>
-                ) : (
-                  <button onClick={() => updateStatus(restaurant.id, 'approved', restaurant.title)} className="flex-1 bg-green-50 text-green-700 text-sm font-bold py-2 rounded-lg hover:bg-green-100">Approve</button>
-                )}
+              <form onSubmit={addCategory} className="flex gap-4 mb-8 border-b border-gray-100 pb-8">
+                <input 
+                  type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} 
+                  placeholder="New Category Name (e.g. 新入生歓迎祭)" 
+                  className="flex-1 p-3 border border-gray-200 rounded-xl outline-none focus:border-purple-500"
+                />
+                <button type="submit" className="bg-purple-600 text-white font-bold px-6 py-3 rounded-xl hover:bg-purple-700 transition">Add</button>
+              </form>
+
+              <div className="space-y-3">
+                {customCategories.length === 0 ? (
+                  <p className="text-gray-400 italic">No custom categories created yet.</p>
+                ) : customCategories.map(cat => (
+                  <div key={cat.id} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100">
+                    <span className="font-bold text-gray-800">{cat.name}</span>
+                    <button onClick={() => deleteCategory(cat.id, cat.name)} className="text-red-500 text-sm font-bold hover:underline">Delete</button>
+                  </div>
+                ))}
               </div>
             </div>
-          ))}
-        </div>
+          )}
+
+          {/* --- TAB: DIRECTORY & PENDING --- */}
+          {(activeTab === 'directory' || activeTab === 'pending') && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {(activeTab === 'directory' ? liveRestaurants : pendingSubmissions).map(restaurant => (
+                <div key={restaurant.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex flex-col">
+                  {restaurant.image_url && (
+                    <img src={restaurant.image_url} alt="Cover" className="w-full h-32 object-cover rounded-xl mb-4 bg-gray-100" />
+                  )}
+                  <h3 className="text-lg font-black text-gray-900 truncate">{restaurant.title}</h3>
+                  <p className="text-xs text-gray-400 mt-1 mb-4">Price: ¥{restaurant.restaurant_price || 'N/A'}</p>
+                  
+                  <div className="flex gap-2 mt-auto">
+                    <button onClick={() => setEditingData(restaurant)} className="flex-1 bg-blue-50 text-blue-600 text-sm font-bold py-2 rounded-lg hover:bg-blue-100 transition">
+                      ✏️ Edit Details
+                    </button>
+                    {activeTab === 'directory' ? (
+                      <button onClick={() => updateStatus(restaurant.id, 'pending', restaurant.title)} className="flex-1 bg-yellow-50 text-yellow-700 text-sm font-bold py-2 rounded-lg hover:bg-yellow-100">Unpublish</button>
+                    ) : (
+                      <button onClick={() => updateStatus(restaurant.id, 'approved', restaurant.title)} className="flex-1 bg-green-50 text-green-700 text-sm font-bold py-2 rounded-lg hover:bg-green-100">Approve</button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
 
       {/* --- MASSIVE COMPREHENSIVE EDIT MODAL --- */}
@@ -159,6 +223,28 @@ export default function AdminDashboard() {
             </div>
             
             <div className="p-6 md:p-8 space-y-12">
+
+              {/* CMS-Driven Dynamic Categories Section */}
+              <section className="p-6 bg-purple-50 rounded-2xl border border-purple-100">
+                <h3 className="text-lg font-black text-purple-900 mb-4 flex items-center">⚙️ Dynamic CMS Categories</h3>
+                {customCategories.length === 0 ? (
+                  <p className="text-sm text-purple-700">No custom categories have been created yet. Create them in the "Manage Categories" tab.</p>
+                ) : (
+                  <div className="flex flex-wrap gap-3">
+                    {customCategories.map(cat => (
+                      <label key={cat.id} className="flex items-center cursor-pointer px-4 py-2 bg-white border border-purple-200 rounded-xl hover:bg-purple-100 transition shadow-sm">
+                        <input 
+                          type="checkbox" 
+                          checked={(editingData.other_options || []).includes(cat.name)} 
+                          onChange={() => toggleEditArray('other_options', cat.name)} 
+                          className="mr-3 h-5 w-5 accent-purple-600" 
+                        />
+                        <span className="text-sm font-black text-purple-900">{cat.name}</span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </section>
               
               {/* 1. PHOTO & BASIC INFO */}
               <section>
@@ -219,7 +305,7 @@ export default function AdminDashboard() {
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-2">Dietary Restrictions (食事制限)</label>
                     <div className="flex flex-wrap gap-2">
-                      {['ハラール', 'ヴィーガン', 'ベジタリアン', 'グルテンフリー', '乳製品不使用', 'ペスカタリアン'].map(opt => (
+                      {['ハラール', 'コーシャ', 'ヴィーガン', 'ベジタリアン', 'グルテンフリー', '乳製品不使用', 'ペスカタリアン'].map(opt => (
                         <label key={opt} className="flex items-center cursor-pointer px-3 py-1.5 border border-gray-200 rounded-lg hover:bg-gray-50">
                           <input type="checkbox" checked={(editingData.food_restrictions || []).includes(opt)} onChange={() => toggleEditArray('food_restrictions', opt)} className="mr-2 accent-green-600" />
                           <span className="text-sm text-gray-700 font-bold">{opt}</span>
@@ -242,11 +328,46 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              {/* 3. LOCATION & CONTACT (Public & Private) */}
+              {/* 3. MENUS & TAKEOUT */}
               <section>
-                <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">3. Location & Contact Data</h3>
+                <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">3. Menus & Takeout</h3>
                 
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Full Menu (Japanese)</label>
+                    <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData({...editingData, full_menu: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500" placeholder="e.g. カレー ... ¥800" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold text-blue-500 uppercase mb-1">Full Menu (English Translation)</label>
+                    <textarea rows={8} value={editingData.full_menu_en || ''} onChange={(e) => setEditingData({...editingData, full_menu_en: e.target.value})} className="w-full p-3 border border-blue-200 rounded-xl outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g. Curry ... ¥800" />
+                  </div>
+                </div>
+
+                <div className="p-5 bg-orange-50 rounded-2xl border border-orange-100">
+                  <label className="flex items-center cursor-pointer mb-4">
+                    <input type="checkbox" checked={editingData.takeout_available || false} onChange={(e) => setEditingData({...editingData, takeout_available: e.target.checked})} className="h-6 w-6 accent-orange-600 mr-3" />
+                    <span className="text-lg font-black text-gray-900">Takeout Available</span>
+                  </label>
+                  
+                  {editingData.takeout_available && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-orange-200 pt-4 mt-2">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 mb-1">Takeout Menu (JA)</label>
+                        <input type="text" value={editingData.takeout_menu || ''} onChange={(e) => setEditingData({...editingData, takeout_menu: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg text-sm" />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-blue-500 mb-1">Takeout Menu (EN)</label>
+                        <input type="text" value={editingData.takeout_menu_en || ''} onChange={(e) => setEditingData({...editingData, takeout_menu_en: e.target.value})} className="w-full p-2 border border-blue-200 rounded-lg text-sm" />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </section>
+
+              {/* 4. LOCATION & CONTACT */}
+              <section>
+                <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">4. Location & Contact Data</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Public Address</label>
                     <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData({...editingData, address: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl" />
@@ -256,7 +377,7 @@ export default function AdminDashboard() {
                     <input type="text" value={editingData.website_url || ''} onChange={(e) => setEditingData({...editingData, website_url: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl" />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Restaurant Area (wasemeshi, etc)</label>
+                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Restaurant Area</label>
                     <input type="text" placeholder="Comma separated (e.g. wasemeshi, Waseda)" value={(editingData.restaurant_area || []).join(', ')} onChange={(e) => setEditingData({...editingData, restaurant_area: e.target.value.split(',').map(s=>s.trim()).filter(Boolean)})} className="w-full p-3 border border-gray-200 rounded-xl" />
                   </div>
                 </div>
@@ -280,10 +401,9 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              {/* 4. OPERATIONS & SERVICES */}
+              {/* 5. OPERATIONS & INTERNAL NOTES */}
               <section>
-                <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">4. Operations & Services</h3>
-                
+                <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">5. Operations & Notes</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Budget (Number)</label>
@@ -305,38 +425,14 @@ export default function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="p-5 bg-orange-50 rounded-2xl border border-orange-100">
-                  <label className="flex items-center cursor-pointer mb-4">
-                    <input type="checkbox" checked={editingData.takeout_available || false} onChange={(e) => setEditingData({...editingData, takeout_available: e.target.checked})} className="h-6 w-6 accent-orange-600 mr-3" />
-                    <span className="text-lg font-black text-gray-900">Takeout Available</span>
-                  </label>
-                  
-                  {editingData.takeout_available && (
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 border-t border-orange-200 pt-4 mt-2">
-                      <div>
-                        <label className="block text-xs font-bold text-gray-500 mb-1">Takeout Menu (JA)</label>
-                        <input type="text" value={editingData.takeout_menu || ''} onChange={(e) => setEditingData({...editingData, takeout_menu: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg text-sm" />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-bold text-blue-500 mb-1">Takeout Menu (EN)</label>
-                        <input type="text" value={editingData.takeout_menu_en || ''} onChange={(e) => setEditingData({...editingData, takeout_menu_en: e.target.value})} className="w-full p-2 border border-blue-200 rounded-lg text-sm" />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
                 <div className="mt-4">
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Discount / Special Offers Details</label>
                   <textarea rows={2} value={editingData.discount_info || ''} onChange={(e) => setEditingData({...editingData, discount_info: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl" />
                 </div>
-              </section>
-
-              {/* 5. INTERNAL NOTES */}
-              <section>
-                <h3 className="text-lg font-black text-gray-800 mb-4 border-b border-gray-100 pb-2">5. Internal Team Notes</h3>
-                <div>
+                
+                <div className="mt-6">
                   <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Admin Notes (Hidden from public)</label>
-                  <textarea rows={3} value={editingData.admin_notes || ''} onChange={(e) => setEditingData({...editingData, admin_notes: e.target.value})} className="w-full p-3 border border-gray-200 bg-yellow-50 rounded-xl outline-none" placeholder="Add any private team notes or requests from the owner here..." />
+                  <textarea rows={3} value={editingData.admin_notes || ''} onChange={(e) => setEditingData({...editingData, admin_notes: e.target.value})} className="w-full p-3 border border-gray-200 bg-yellow-50 rounded-xl outline-none" placeholder="Add any private team notes..." />
                 </div>
               </section>
 

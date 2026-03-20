@@ -9,7 +9,6 @@ export default function RegisterRestaurant() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   
-  // 条件付きレンダリング用のステート
   const [hoursSource, setHoursSource] = useState('google');
   const [takeout, setTakeout] = useState(false);
   const [photoMethod, setPhotoMethod] = useState('email');
@@ -21,8 +20,6 @@ export default function RegisterRestaurant() {
     
     const formData = new FormData(e.currentTarget);
     
-    // ※ 既存のSupabaseのrestaurantsテーブルに新しいカラム（atom_currency, discount_infoなど）を
-    // 追加する必要がありますが、ここでは送信用のオブジェクトを構築します。
     const newRestaurant = {
       title: formData.get('title'),
       description: formData.get('description'),
@@ -34,12 +31,11 @@ export default function RegisterRestaurant() {
       total_seats: formData.get('total_seats'),
       avg_stay_time: formData.get('avg_stay_time'),
       status: 'pending',
-      // 新規追加要素のデータマッピング（データベース拡張用）
       contact_name: formData.get('contact_name'),
       contact_email: formData.get('contact_email'),
       contact_phone: formData.get('contact_phone'),
       address: formData.get('address'),
-      google_map_url: formData.get('google_map_url'),
+      // REMOVED: google_map_url
       payment_methods: formData.getAll('payment'),
       website_url: formData.get('website_url'),
       atom_currency: formData.get('atom_currency') === 'yes',
@@ -61,8 +57,8 @@ export default function RegisterRestaurant() {
   };
 
   return (
-    <div className="max-w-4xl mx-auto py-8">
-      {/* イントロダクション */}
+    <div className="max-w-4xl mx-auto py-8 px-4">
+      {/* Introduction */}
       <div className="bg-gradient-to-r from-orange-600 to-orange-500 rounded-3xl p-8 md:p-12 text-white shadow-lg mb-8">
         <h1 className="text-3xl md:text-4xl font-black mb-4 tracking-tight">ワセメシ情報ご提供のお願い</h1>
         <p className="text-orange-50 font-medium leading-relaxed mb-6">
@@ -86,7 +82,7 @@ export default function RegisterRestaurant() {
 
       <form onSubmit={handleSubmit} className="space-y-8">
         
-        {/* SECTION 1: 掲載許可と基本情報 */}
+        {/* SECTION 1: Basic Info */}
         <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
           <h2 className="text-2xl font-black text-gray-900 mb-6 border-b pb-4">1. 店舗の基本情報</h2>
           
@@ -117,14 +113,11 @@ export default function RegisterRestaurant() {
               <input name="address" type="text" className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none transition" placeholder="例：東京都新宿区西早稲田1-2-3" />
             </div>
             
-            <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">GoogleマップのURL</label>
-              <input name="google_map_url" type="url" className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none transition" placeholder="例：https://goo.gl/maps/..." />
-            </div>
+            {/* REMOVED: Google Map URL Input */}
           </div>
         </section>
 
-        {/* SECTION 2: 営業時間 */}
+        {/* SECTION 2: Hours */}
         <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
           <h2 className="text-2xl font-black text-gray-900 mb-6 border-b pb-4">2. 営業時間</h2>
           
@@ -144,7 +137,6 @@ export default function RegisterRestaurant() {
             </div>
           </div>
 
-          {/* 手動入力が選ばれた時だけ表示されるスマートUI */}
           {hoursSource === 'manual' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-2xl border border-gray-200">
               <p className="md:col-span-2 text-sm text-gray-500 mb-2 font-medium">※ 定休日の場合は「定休日」、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。</p>
@@ -158,7 +150,7 @@ export default function RegisterRestaurant() {
           )}
         </section>
 
-        {/* SECTION 3: 料理・食事制限 */}
+        {/* SECTION 3: Food & Dietary */}
         <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
           <h2 className="text-2xl font-black text-gray-900 mb-6 border-b pb-4">3. お食事とサービス</h2>
 
@@ -180,7 +172,7 @@ export default function RegisterRestaurant() {
             <div>
               <label className="block text-sm font-bold text-gray-700 mb-3">食事制限への対応 (複数可)</label>
               <div className="flex flex-wrap gap-3">
-                {['ハラール', 'ヴィーガン', 'ベジタリアン', 'グルテンフリー', '乳製品不使用', 'ペスカタリアン'].map((r) => (
+                {['ハラール', 'ヴィーガン', 'ベジタリアン', 'グルテンフリー', 'コーシャ', '乳製品不使用', 'ペスカタリアン'].map((r) => (
                   <label key={r} className="cursor-pointer">
                     <input type="checkbox" name="restrictions" value={r} className="peer sr-only" />
                     <div className="px-4 py-2 rounded-lg border border-gray-200 peer-checked:bg-green-600 peer-checked:text-white peer-checked:border-green-600 text-sm font-bold text-gray-600 transition shadow-sm hover:bg-gray-50">
@@ -210,7 +202,7 @@ export default function RegisterRestaurant() {
           </div>
         </section>
 
-        {/* SECTION 4: 設備・テイクアウト */}
+        {/* SECTION 4: Facilities & Takeout */}
         <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
           <h2 className="text-2xl font-black text-gray-900 mb-6 border-b pb-4">4. 設備・テイクアウト</h2>
 
@@ -236,7 +228,6 @@ export default function RegisterRestaurant() {
               <span className="ml-3 font-black text-gray-900 text-lg">テイクアウト（お持ち帰り）を行っている</span>
             </label>
             
-            {/* テイクアウトがONの時だけ表示 */}
             {takeout && (
               <div className="mt-4 pt-4 border-t border-orange-200 space-y-4">
                 <div>
@@ -274,7 +265,7 @@ export default function RegisterRestaurant() {
           </div>
         </section>
 
-        {/* SECTION 5: 写真・その他 */}
+        {/* SECTION 5: Photos & Final Notes */}
         <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
           <h2 className="text-2xl font-black text-gray-900 mb-6 border-b pb-4">5. 写真のご提供方法</h2>
           
@@ -303,7 +294,7 @@ export default function RegisterRestaurant() {
           </div>
         </section>
 
-        {/* 送信ボタン */}
+        {/* Submit Button */}
         <button 
           type="submit" 
           disabled={loading}

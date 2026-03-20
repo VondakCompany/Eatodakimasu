@@ -1,7 +1,9 @@
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
-import ClientImage from './ClientImage';
+
+// This forces Next.js to always fetch fresh data (bypassing the cache)
+export const dynamic = 'force-dynamic';
 
 export default async function RestaurantPage({ params }: { params: Promise<{ id: string }> }) {
   const resolvedParams = await params;
@@ -16,12 +18,12 @@ export default async function RestaurantPage({ params }: { params: Promise<{ id:
     notFound(); 
   }
 
-  // FIXED: Standard Google Maps Embed URL
+  // Official free embedded map iframe URL
   const mapEmbedUrl = restaurant.address 
     ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}&t=&z=16&ie=UTF8&iwloc=&output=embed`
     : null;
 
-  // FIXED: Standard Google Maps Outbound Link
+  // Official cross-platform Google Maps search link
   const mapOutboundLink = restaurant.address
     ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}`
     : null;
@@ -31,7 +33,14 @@ export default async function RestaurantPage({ params }: { params: Promise<{ id:
       
       {/* Header Banner & Image */}
       <div className="h-64 md:h-96 w-full relative bg-gray-900 group">
-        <ClientImage title={restaurant.title} />
+        
+        {/* THE TRICK: No extra components, just a raw img tag with a fallback */}
+        <img 
+          src={restaurant.image_url || "/images/default.jpg"} 
+          alt={restaurant.title} 
+          className="object-cover w-full h-full opacity-60 absolute inset-0 z-0" 
+        />
+        
         <Link href="/" className="absolute top-6 left-6 bg-white/90 backdrop-blur text-gray-900 px-4 py-2 rounded-xl font-bold text-sm hover:bg-white transition shadow-sm z-10">
           ← 検索に戻る (Back)
         </Link>
@@ -42,9 +51,19 @@ export default async function RestaurantPage({ params }: { params: Promise<{ id:
         {/* Title & Price */}
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-gray-100 pb-8">
           <div>
-            <h1 className="text-4xl md:text-5xl font-black text-gray-900 tracking-tight mb-2">{restaurant.title}</h1>
+            <h1 className="text-4xl md:text-5xl font-black text-gray-900 tracking-tight mb-2">
+              {restaurant.title}
+            </h1>
+            
+            {/* Event Badge */}
+            {restaurant.participates_in_event && (
+              <span className="inline-block mt-2 mb-2 bg-pink-100 text-pink-800 text-sm font-black px-4 py-1.5 rounded-full shadow-sm border border-pink-200">
+                🎉 イベント参加店舗
+              </span>
+            )}
+            
             {restaurant.cuisine && (
-              <p className="text-orange-600 font-bold">{restaurant.cuisine.join(' • ')}</p>
+              <p className="text-orange-600 font-bold mt-2">{restaurant.cuisine.join(' • ')}</p>
             )}
           </div>
           {restaurant.restaurant_price && (

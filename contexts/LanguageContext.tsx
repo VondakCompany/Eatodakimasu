@@ -70,6 +70,7 @@ export const FILTER_OPTIONS = {
   ],
   restrictions: [
     { id: 'ハラール', ja: 'ハラール', en: 'Halal' },
+    { id: 'コーシャ', ja: 'コーシャ', en: 'Kosher' }, // <-- Added Kosher here
     { id: 'ヴィーガン', ja: 'ヴィーガン', en: 'Vegan' },
     { id: 'ベジタリアン', ja: 'ベジタリアン', en: 'Vegetarian' },
     { id: 'グルテンフリー', ja: 'グルテンフリー', en: 'Gluten-Free' },
