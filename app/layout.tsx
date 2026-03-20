@@ -1,27 +1,35 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
 import "./globals.css";
-import Navbar from "@/components/Navbar";
 import { LanguageProvider } from "@/contexts/LanguageContext";
+import Navbar from "@/components/Navbar"; // <-- RESTORED: Import the Navbar
 
 const inter = Inter({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Eatodakimasu | Wasemeshi Guide",
-  description: "Discover local Waseda restaurants.",
+  title: "Eatodakimasu | Waseda Restaurant Guide",
+  description: "Find the best restaurants around Waseda University.",
 };
 
 export default function RootLayout({
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
   return (
-    <html lang="en">
-      <body className={inter.className}>
+    <html lang="ja">
+      <body className={`${inter.className} bg-gray-50 min-h-screen text-gray-900 flex flex-col`}>
+        {/* The LanguageProvider wraps everything so the whole app knows the current language */}
         <LanguageProvider>
+          
+          {/* RESTORED: The Navbar is back and will appear on every single page! */}
           <Navbar />
-          <main className="min-h-screen max-w-7xl mx-auto p-4 md:p-8">
+          
+          {/* The main page content (Search, Admin, Restaurant Details) loads here */}
+          <div className="flex-1">
             {children}
-          </main>
+          </div>
+          
         </LanguageProvider>
       </body>
     </html>
