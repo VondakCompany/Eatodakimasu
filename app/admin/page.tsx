@@ -22,16 +22,19 @@ export default function AdminDashboard() {
 
   const fetchAllData = async () => {
     setLoading(true);
-    const { data, error } = await supabase
-      .from('restaurants')
-      .select('*')
-      .order('created_at', { ascending: false });
     
-    if (data) {
-      setPendingSubmissions(data.filter(r => r.status === 'pending'));
-      setLiveRestaurants(data.filter(r => r.status === 'approved'));
-    }
-    if (error) console.error(error);
+    // Fetch both simultaneously, but only pull exactly what we need
+    const [pending, approved] = await Promise.all([
+      supabase.from('restaurants').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
+      supabase.from('restaurants').select('*').eq('status', 'approved').order('created_at', { ascending: false })
+    ]);
+
+    if (pending.data) setPendingSubmissions(pending.data);
+    if (approved.data) setLiveRestaurants(approved.data);
+    
+    if (pending.error) console.error("Pending error:", pending.error);
+    if (approved.error) console.error("Approved error:", approved.error);
+    
     setLoading(false);
   };
 
@@ -247,10 +250,6 @@ export default function AdminDashboard() {
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Public Address</label>
                     <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData({...editingData, address: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Google Maps URL</label>
-                    <input type="text" value={editingData.google_map_url || ''} onChange={(e) => setEditingData({...editingData, google_map_url: e.target.value})} className="w-full p-3 border border-gray-200 rounded-xl" />
                   </div>
                   <div>
                     <label className="block text-xs font-bold text-gray-400 uppercase mb-1">Website URL</label>

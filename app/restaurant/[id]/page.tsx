@@ -16,9 +16,14 @@ export default async function RestaurantPage({ params }: { params: Promise<{ id:
     notFound(); 
   }
 
-  // Generate a free Google Maps embed URL using the address
+  // FIXED: Standard Google Maps Embed URL
   const mapEmbedUrl = restaurant.address 
-    ? `https://www.google.com/maps?q=${encodeURIComponent(restaurant.address)}&output=embed`
+    ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}&t=&z=16&ie=UTF8&iwloc=&output=embed`
+    : null;
+
+  // FIXED: Standard Google Maps Outbound Link
+  const mapOutboundLink = restaurant.address
+    ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}`
     : null;
 
   return (
@@ -54,14 +59,13 @@ export default async function RestaurantPage({ params }: { params: Promise<{ id:
           <p className="text-lg text-gray-700 mb-12 leading-relaxed">{restaurant.description}</p>
         )}
 
-        {/* --- NEW: FULLY FLEDGED MENU SECTION --- */}
+        {/* FULLY FLEDGED MENU SECTION */}
         <div className="mb-12">
           <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center">
             <span className="text-3xl mr-3">📋</span> メニュー (Menu)
           </h2>
           <div className="bg-gray-50 p-6 md:p-8 rounded-3xl border border-gray-100">
             {restaurant.full_menu ? (
-              // whitespace-pre-wrap ensures that line breaks typed in the admin dashboard display correctly here
               <div className="text-gray-800 font-medium leading-relaxed whitespace-pre-wrap">
                 {restaurant.full_menu}
               </div>
@@ -69,7 +73,6 @@ export default async function RestaurantPage({ params }: { params: Promise<{ id:
               <p className="text-gray-500 italic">メニューの詳細は現在準備中です。(Menu details coming soon)</p>
             )}
 
-            {/* Takeout Mini-Menu */}
             {restaurant.takeout_available && (
               <div className="mt-8 pt-6 border-t border-gray-200">
                 <h3 className="text-sm font-black text-orange-900 uppercase tracking-wider mb-3 flex items-center">
@@ -110,43 +113,43 @@ export default async function RestaurantPage({ params }: { params: Promise<{ id:
         </div>
       </div>
 
-      {/* --- NEW: INTERACTIVE MAP SECTION --- */}
-      {mapEmbedUrl && (
+      {/* INTERACTIVE MAP & ADDRESS FALLBACK SECTION */}
+      {restaurant.address && (
         <div className="bg-gray-50 border-t border-gray-200 p-8 md:p-12">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
             <div>
               <h2 className="text-2xl font-black text-gray-900 mb-2">アクセス (Location)</h2>
-              <p className="text-gray-600 font-medium flex items-center">
+              <p className="text-gray-800 font-bold text-lg flex items-start">
                 <span className="mr-2">📍</span> {restaurant.address}
               </p>
             </div>
-            {/* The actual link provided by the owner to open Google Maps app on phones */}
-            {restaurant.google_map_url && (
-              <a 
-                href={restaurant.google_map_url} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                className="bg-gray-900 text-white font-bold px-6 py-3 rounded-xl hover:bg-gray-800 transition shadow-md whitespace-nowrap"
-              >
-                Google Mapsで開く ↗
-              </a>
-            )}
+            
+            <a 
+              href={mapOutboundLink || '#'} 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="bg-gray-900 text-white font-bold px-6 py-3 rounded-xl hover:bg-gray-800 transition shadow-md whitespace-nowrap"
+            >
+              マップアプリで開く ↗
+            </a>
           </div>
 
-          {/* The generated free embedded map */}
-          <div className="w-full h-80 md:h-96 rounded-3xl overflow-hidden border border-gray-200 shadow-inner bg-gray-200">
-            <iframe 
-              title={`Map of ${restaurant.title}`}
-              width="100%" 
-              height="100%" 
-              frameBorder="0" 
-              style={{ border: 0 }} 
-              src={mapEmbedUrl} 
-              allowFullScreen 
-              loading="lazy"
-              referrerPolicy="no-referrer-when-downgrade"
-            ></iframe>
-          </div>
+          {/* The Embed Map */}
+          {mapEmbedUrl && (
+            <div className="w-full h-80 md:h-96 rounded-3xl overflow-hidden border border-gray-200 shadow-inner bg-gray-200 mt-6">
+              <iframe 
+                title={`Map of ${restaurant.title}`}
+                width="100%" 
+                height="100%" 
+                frameBorder="0" 
+                style={{ border: 0 }} 
+                src={mapEmbedUrl} 
+                allowFullScreen 
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+              ></iframe>
+            </div>
+          )}
         </div>
       )}
 
