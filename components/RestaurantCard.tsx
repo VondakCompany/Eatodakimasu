@@ -1,72 +1,64 @@
-'use client';
-
 import Link from 'next/link';
-import { useState, useEffect } from 'react';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function RestaurantCard({ restaurant }: { restaurant: any }) {
-  // Use state to handle the image safely
-  const [imgSrc, setImgSrc] = useState(restaurant.image_url || '/images/default.jpg');
+  const { currentLang, t } = useLanguage();
 
-  // Update it if the search filters change and load new restaurants
-  useEffect(() => {
-    setImgSrc(restaurant.image_url || '/images/default.jpg');
-  }, [restaurant.image_url]);
+  const displayTitle = currentLang === 'ja' 
+    ? restaurant.title 
+    : (restaurant.translations?.[currentLang]?.title || restaurant.title);
+    
+  const displayDescription = currentLang === 'ja' 
+    ? restaurant.description 
+    : (restaurant.translations?.[currentLang]?.description || restaurant.description);
 
   return (
-    <Link 
-      href={`/restaurant/${restaurant.id}`} 
-      className="group flex flex-col bg-white rounded-3xl overflow-hidden shadow-sm border border-gray-200 hover:shadow-xl transition-all duration-300 transform hover:-translate-y-1"
-    >
-      <div className="h-48 bg-gray-200 relative overflow-hidden">
-        
+    <Link href={`/restaurant/${restaurant.id}`} className="block bg-white rounded-3xl border border-gray-100 overflow-hidden hover:shadow-xl transition-all duration-300 group shadow-sm flex flex-col h-full">
+      <div className="relative h-48 w-full bg-gray-100 overflow-hidden">
         <img 
-          src={imgSrc} 
-          alt={restaurant.title} 
-          onError={() => setImgSrc('/images/default.jpg')} // Fallback if image breaks
-          className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-500" 
+          src={restaurant.image_url || "/images/default.jpg"} 
+          alt={displayTitle} 
+          className="w-full h-full object-cover group-hover:scale-105 transition duration-500" 
         />
-        
-        {/* Badges */}
-        <div className="absolute top-4 left-4 flex flex-col gap-2">
-          {restaurant.takeout_available && (
-            <span className="bg-orange-600 text-white text-xs font-black px-3 py-1.5 rounded-lg shadow-sm">
-              🛍️ テイクアウト
+        {restaurant.participates_in_event && (
+          <span className="absolute top-4 right-4 bg-pink-500 text-white text-xs font-black px-3 py-1 rounded-full shadow-md">
+            {t('badge_event_short', '🎉 イベント')}
+          </span>
+        )}
+        {restaurant.takeout_available && (
+          <span className="absolute top-4 left-4 bg-white/90 backdrop-blur text-orange-600 text-xs font-black px-3 py-1 rounded-full shadow-sm">
+            {t('badge_takeout_short', '🛍️ テイクアウト')}
+          </span>
+        )}
+      </div>
+      <div className="p-6 flex flex-col flex-1">
+        <div className="flex justify-between items-start mb-2 gap-4">
+          <h3 className="text-xl font-black text-gray-900 group-hover:text-orange-600 transition leading-tight line-clamp-2">
+            {displayTitle}
+          </h3>
+          {restaurant.restaurant_price && (
+            <span className="bg-orange-50 text-orange-700 text-xs font-black px-2 py-1 rounded-lg whitespace-nowrap">
+              ¥{restaurant.restaurant_price}〜
             </span>
           )}
         </div>
-      </div>
-
-      <div className="p-6 flex-1 flex flex-col">
-        <div className="flex justify-between items-start mb-2">
-          <h3 className="text-xl font-black text-gray-900 line-clamp-1">{restaurant.title}</h3>
-        </div>
         
-        {restaurant.cuisine && (
-          <p className="text-sm font-bold text-orange-600 mb-3">{restaurant.cuisine.join(' • ')}</p>
+        {restaurant.cuisine && restaurant.cuisine.length > 0 && (
+          <p className="text-sm font-bold text-orange-500 mb-3">
+            {restaurant.cuisine.map((c: string) => t(`tag_${c}`, c)).join(' • ')}
+          </p>
         )}
         
-        {/* Dietary Tags */}
-        {restaurant.food_restrictions && restaurant.food_restrictions.length > 0 && (
-          <div className="flex flex-wrap gap-1 mb-4">
-            {restaurant.food_restrictions.map((res: string) => (
-              <span key={res} className="bg-green-100 text-green-800 text-[10px] font-bold px-2 py-1 rounded-md">
-                {res}
-              </span>
-            ))}
-          </div>
-        )}
+        <p className="text-gray-600 text-sm mb-4 line-clamp-3 font-medium flex-1">
+          {displayDescription}
+        </p>
         
-        {/* Footer info */}
-        <div className="mt-auto pt-4 border-t border-gray-100 flex justify-between items-center text-sm font-bold text-gray-500">
-          <span className="flex items-center">
-            <span className="mr-1 text-lg">📍</span> 
-            {restaurant.restaurant_area && restaurant.restaurant_area.length > 0 
-              ? restaurant.restaurant_area[0] 
-              : '早稲田周辺'}
-          </span>
-          {restaurant.restaurant_price && (
-            <span>¥{restaurant.restaurant_price}〜</span>
-          )}
+        <div className="flex flex-wrap gap-2 mt-auto">
+          {restaurant.food_restrictions && restaurant.food_restrictions.slice(0, 3).map((res: string, i: number) => (
+            <span key={i} className="text-xs font-bold text-green-700 bg-green-50 px-2 py-1 rounded-md border border-green-100">
+              {t(`tag_${res}`, res)}
+            </span>
+          ))}
         </div>
       </div>
     </Link>

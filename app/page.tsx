@@ -3,39 +3,7 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import RestaurantCard from '@/components/RestaurantCard';
-import { useLanguage } from '@/contexts/LanguageContext';
-
-const FILTER_OPTIONS = {
-  cuisines: [
-    { id: '和食', ja: '和食', en: 'Japanese' },
-    { id: '洋食', ja: '洋食', en: 'Western' },
-    { id: '中華', ja: '中華', en: 'Chinese' },
-    { id: '韓国料理', ja: '韓国料理', en: 'Korean' },
-    { id: 'インド料理', ja: 'インド料理', en: 'Indian' },
-    { id: '東南アジア', ja: '東南アジア', en: 'Southeast Asian' },
-    { id: 'ファストフード', ja: 'ファストフード', en: 'Fast Food' },
-    { id: 'カフェ・スイーツ', ja: 'カフェ・スイーツ', en: 'Cafe/Sweets' },
-    { id: '寿司', ja: '寿司', en: 'Sushi' },
-    { id: '丼もの', ja: '丼もの', en: 'Rice Bowls' }
-  ],
-  restrictions: [
-    { id: 'ハラール', ja: 'ハラール', en: 'Halal' },
-    { id: 'コーシャ', ja: 'コーシャ', en: 'Kosher' },
-    { id: 'ヴィーガン', ja: 'ヴィーガン', en: 'Vegan' },
-    { id: 'ベジタリアン', ja: 'ベジタリアン', en: 'Vegetarian' },
-    { id: 'グルテンフリー', ja: 'グルテンフリー', en: 'Gluten-Free' },
-    { id: '乳製品不使用', ja: '乳製品不使用', en: 'Dairy-Free' },
-    { id: 'ペスカタリアン', ja: 'ペスカタリアン', en: 'Pescatarian' }
-  ],
-  payments: [
-    { id: '現金', ja: '現金', en: 'Cash' },
-    { id: 'クレジットカード', ja: 'クレジットカード', en: 'Credit Card' },
-    { id: 'デビットカード', ja: 'デビットカード', en: 'Debit Card' },
-    { id: 'QRコード決済', ja: 'QRコード決済', en: 'QR Code' },
-    { id: '電子マネー', ja: '電子マネー', en: 'E-Money' },
-    { id: '銀行振込', ja: '銀行振込', en: 'Bank Transfer' }
-  ]
-};
+import { useLanguage, FILTER_CATEGORIES } from '@/contexts/LanguageContext';
 
 export default function Home() {
   const { currentLang: lang, t } = useLanguage();
@@ -48,6 +16,7 @@ export default function Home() {
   const [otherOptions, setOtherOptions] = useState<string[]>([]);
 
   const [restaurants, setRestaurants] = useState<any[]>([]);
+  const [cmsCategories, setCmsCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
 
   const toggleArrayItem = (setter: React.Dispatch<React.SetStateAction<string[]>>, array: string[], value: string) => {
@@ -59,6 +28,18 @@ export default function Home() {
     setQuery(''); setPrice(3000); setCuisines([]); setRestrictions([]); setPayments([]); setOtherOptions([]);
   };
 
+  // Fetch Custom Categories from CMS on load
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const { data } = await supabase.from('custom_categories').select('name').order('created_at', { ascending: true });
+      if (data) {
+        setCmsCategories(data.map(c => c.name));
+      }
+    };
+    fetchCategories();
+  }, []);
+
+  // Fetch Restaurants & Filter
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       setLoading(true);
@@ -92,7 +73,6 @@ export default function Home() {
 
   return (
     <div className="max-w-7xl mx-auto w-full flex flex-col gap-10 py-6">
-      
       <div className="w-full max-w-3xl mx-auto mt-4 px-4">
         <h1 className="text-4xl md:text-5xl font-black text-center text-gray-900 mb-8 tracking-tight">Eatodakimasu</h1>
         <div className="relative shadow-lg rounded-2xl group bg-white">
@@ -111,7 +91,6 @@ export default function Home() {
       </div>
 
       <div className="flex flex-col lg:flex-row-reverse gap-8 px-4">
-        
         <aside className="w-full lg:w-[300px] flex-shrink-0">
           <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-200 sticky top-24">
             <div className="flex justify-between items-center mb-6 border-b border-gray-100 pb-4">
@@ -127,39 +106,52 @@ export default function Home() {
               <div className="flex justify-between items-center mb-4">
                 <label className="block text-xs font-bold text-gray-400 uppercase">{t('filter_budget', '予算')}</label>
                 <span className="text-orange-600 font-black text-sm bg-orange-50 px-2 py-1 rounded-md">
-                  {price === 3000 ? t('no_limit', '制限なし') : `¥${price} ${t('below', '以下')}`}
+                  {price === 3000 ? t('price_no_limit', '制限なし') : t('price_under_amount', '¥{{price}} 以下', { price: price })}
                 </span>
               </div>
               <input type="range" min="500" max="3000" step="100" value={price} onChange={(e) => setPrice(parseInt(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg accent-orange-600" />
             </div>
 
             {[
-              { label: t('filter_cuisine', 'ジャンル'), state: cuisines, setter: setCuisines, options: FILTER_OPTIONS.cuisines },
-              { label: t('filter_dietary', '食事制限'), state: restrictions, setter: setRestrictions, options: FILTER_OPTIONS.restrictions },
-              { label: t('filter_payment', '決済方法'), state: payments, setter: setPayments, options: FILTER_OPTIONS.payments }
+              { label: t('filter_cuisine', 'ジャンル'), state: cuisines, setter: setCuisines, options: FILTER_CATEGORIES.cuisines },
+              { label: t('filter_dietary', '食事制限'), state: restrictions, setter: setRestrictions, options: FILTER_CATEGORIES.restrictions },
+              { label: t('filter_payment', '決済方法'), state: payments, setter: setPayments, options: FILTER_CATEGORIES.payments }
             ].map((group, idx) => (
               <div key={idx} className="mb-8">
                 <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{group.label}</label>
                 <div className="flex flex-wrap gap-2">
-                  {group.options.map((opt) => (
+                  {group.options.map((optId) => (
                     <button 
-                      key={opt.id} onClick={() => toggleArrayItem(group.setter, group.state, opt.id)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${group.state.includes(opt.id) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                      key={optId} onClick={() => toggleArrayItem(group.setter, group.state, optId)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${group.state.includes(optId) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                     >
-                      {lang === 'en' ? opt.en : opt.ja}
+                      {t(`tag_${optId}`, optId)}
                     </button>
                   ))}
                 </div>
               </div>
             ))}
 
-            <div className="mb-2">
-              <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_other', 'オプション')}</label>
-              <label className="flex items-center cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition">
-                <input type="checkbox" checked={otherOptions.includes('スタンプラリー参加')} onChange={() => toggleArrayItem(setOtherOptions, otherOptions, 'スタンプラリー参加')} className="h-5 w-5 text-orange-600 rounded border-gray-300" />
-                <span className="ml-3 text-sm font-bold text-gray-800">{t('stamp_rally', 'スタンプラリー参加')}</span>
-              </label>
-            </div>
+            {/* THE ACTUAL DYNAMIC CMS CATEGORIES (Hardcoded block deleted) */}
+            {cmsCategories.length > 0 && (
+              <div className="mb-2">
+                <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_other', 'オプション')}</label>
+                <div className="flex flex-col gap-2">
+                  {cmsCategories.map((catName) => (
+                    <label key={catName} className="flex items-center cursor-pointer p-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition">
+                      <input 
+                        type="checkbox" 
+                        checked={otherOptions.includes(catName)} 
+                        onChange={() => toggleArrayItem(setOtherOptions, otherOptions, catName)} 
+                        className="h-5 w-5 text-orange-600 rounded border-gray-300 cursor-pointer" 
+                      />
+                      <span className="ml-3 text-sm font-bold text-gray-800">{t(`tag_${catName}`, catName)}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
+            
           </div>
         </aside>
 
@@ -169,7 +161,7 @@ export default function Home() {
             <div className="flex items-center gap-3">
               {loading && <span className="text-orange-500 font-bold text-sm animate-pulse">{t('searching', '検索中...')}</span>}
               <span className="text-gray-500 font-bold text-sm bg-white border border-gray-200 px-4 py-1.5 rounded-full shadow-sm">
-                {restaurants.length} {t('label_places', '店舗')}
+                {t('label_places_count', '{{count}} 店舗', { count: restaurants.length })}
               </span>
             </div>
           </div>
