@@ -148,6 +148,33 @@ export default function AdminDashboard() {
     }
   };
 
+  // ✅ SMART CASCADING UPDATE: Changes tag name AND updates all connected restaurants
+  const updateBaseTagName = async (id: string, oldName: string, newName: string, type: string) => {
+    const safeNewName = newName.trim();
+    if (!safeNewName || safeNewName === oldName) return;
+
+    // 1. Update the tag table
+    await supabase.from('filter_options').update({ name: safeNewName }).eq('id', id);
+
+    // 2. Safely update all restaurants that use this tag so they don't lose their data
+    const dbField = getDbField(type);
+    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    
+    const updatePromises = allRests.map(async (rest) => {
+      const currentArray = rest[dbField] || [];
+      if (currentArray.includes(oldName)) {
+        const newArray = currentArray.map((item: string) => item === oldName ? safeNewName : item);
+        return supabase.from('restaurants').update({ [dbField]: newArray }).eq('id', rest.id);
+      }
+    }).filter(Boolean);
+
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises);
+    }
+
+    fetchAllData();
+  };
+
   // --- HELPER: MAP CMS TYPE TO DB COLUMN ---
   const getDbField = (type: string) => {
     switch (type) {
@@ -337,11 +364,11 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* NEW TAGS TRANSLATION TAB */}
+              {/* TAGS SPREADSHEET */}
               {transSubTab === 'tags' && (
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200 overflow-x-auto animate-in fade-in">
                   <h2 className="text-2xl font-black mb-4">Tag Translations</h2>
-                  <p className="text-sm text-gray-500 mb-6">Translate your cuisines, dietary restrictions, and payment methods here. These will sync instantly to the homepage filters.</p>
+                  <p className="text-sm text-gray-500 mb-6">Translate your cuisines, dietary restrictions, and payment methods here. Editing the JA column will safely update all connected restaurants automatically.</p>
                   
                   <table className="w-full text-left">
                     <thead>
@@ -357,7 +384,15 @@ export default function AdminDashboard() {
                       {masterFilters.map(filter => (
                         <tr key={filter.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
                           <td className="p-3 text-xs font-bold text-gray-400 uppercase tracking-widest">{filter.type}</td>
-                          <td className="p-3 font-bold text-gray-900">{filter.name}</td>
+                          <td className="p-3">
+                            {/* ✅ Editable Base Name (Triggers the cascading update) */}
+                            <input 
+                              type="text" 
+                              defaultValue={filter.name}
+                              onBlur={(e) => updateBaseTagName(filter.id, filter.name, e.target.value, filter.type)}
+                              className="w-full p-3 font-bold text-gray-900 bg-transparent border border-transparent rounded-xl focus:border-orange-300 focus:bg-white outline-none" 
+                            />
+                          </td>
                           {translationLangs.map(l => (
                             <td key={l.code} className="p-2">
                               <input 
@@ -483,7 +518,13 @@ export default function AdminDashboard() {
                       <div className="flex flex-col gap-3">
                         {masterFilters.filter(f => f.type === type).map(filter => (
                           <div key={filter.id} className="group flex justify-between items-center p-4 bg-white border border-gray-100 rounded-2xl hover:border-orange-200 transition shadow-sm relative">
-                            <span className="text-sm font-black text-gray-800">{filter.name}</span>
+                            {/* ✅ Editable Base Name in the Category Hub too! */}
+                            <input 
+                              type="text" 
+                              defaultValue={filter.name}
+                              onBlur={(e) => updateBaseTagName(filter.id, filter.name, e.target.value, filter.type)}
+                              className="text-sm font-black text-gray-800 bg-transparent outline-none border-b border-transparent focus:border-orange-300 focus:border-dashed w-4/5"
+                            />
                             <button onClick={() => deleteMasterFilter(filter.id)} className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition">✕</button>
                           </div>
                         ))}
