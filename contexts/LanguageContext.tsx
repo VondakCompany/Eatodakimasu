@@ -3,14 +3,6 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-// CLEANED: Only the base IDs exist in code now. 
-// The translations live 100% in your CMS.
-export const FILTER_CATEGORIES = {
-  cuisines: ['和食', '洋食', '中華', '韓国料理', 'インド料理', '東南アジア', 'ファストフード', 'カフェ・スイーツ', '寿司', '丼もの'],
-  restrictions: ['ハラール', 'コーシャ', 'ヴィーガン', 'ベジタリアン', 'グルテンフリー', '乳製品不使用', 'ペスカタリアン'],
-  payments: ['現金', 'クレジットカード', 'デビットカード', 'QRコード決済', '電子マネー', '銀行振込']
-};
-
 type LanguageContextType = {
   currentLang: string;
   setLanguage: (lang: string) => void;

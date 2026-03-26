@@ -3,9 +3,10 @@
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import RestaurantCard from '@/components/RestaurantCard';
-import { useLanguage, FILTER_CATEGORIES } from '@/contexts/LanguageContext';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 export default function Home() {
+  // ✅ Removed FILTER_CATEGORIES hardcode import!
   const { currentLang: lang, t } = useLanguage();
 
   const [query, setQuery] = useState('');
@@ -17,6 +18,10 @@ export default function Home() {
 
   const [restaurants, setRestaurants] = useState<any[]>([]);
   const [cmsCategories, setCmsCategories] = useState<string[]>([]);
+  
+  // ✅ New state to hold our dynamic DB tags
+  const [masterFilters, setMasterFilters] = useState<any[]>([]);
+  
   const [loading, setLoading] = useState(true);
 
   const toggleArrayItem = (setter: React.Dispatch<React.SetStateAction<string[]>>, array: string[], value: string) => {
@@ -28,15 +33,18 @@ export default function Home() {
     setQuery(''); setPrice(3000); setCuisines([]); setRestrictions([]); setPayments([]); setOtherOptions([]);
   };
 
-  // Fetch Custom Categories from CMS on load
+  // ✅ Fetch Custom Categories AND Master Filters on load
   useEffect(() => {
-    const fetchCategories = async () => {
-      const { data } = await supabase.from('custom_categories').select('name').order('created_at', { ascending: true });
-      if (data) {
-        setCmsCategories(data.map(c => c.name));
-      }
+    const fetchInitialData = async () => {
+      // 1. Fetch Events / Categories
+      const { data: catData } = await supabase.from('custom_categories').select('name').order('created_at', { ascending: true });
+      if (catData) setCmsCategories(catData.map(c => c.name));
+
+      // 2. Fetch Master Filter Tags from DB
+      const { data: filterData } = await supabase.from('filter_options').select('*').order('name', { ascending: true });
+      if (filterData) setMasterFilters(filterData);
     };
-    fetchCategories();
+    fetchInitialData();
   }, []);
 
   // Fetch Restaurants & Filter
@@ -70,6 +78,11 @@ export default function Home() {
   }, [query, price, cuisines, restrictions, payments, otherOptions]);
 
   const hasActiveFilters = query || price !== 3000 || cuisines.length > 0 || restrictions.length > 0 || payments.length > 0 || otherOptions.length > 0;
+
+  // ✅ Organize our DB tags into arrays for rendering
+  const dbCuisines = masterFilters.filter(f => f.type === 'cuisine');
+  const dbRestrictions = masterFilters.filter(f => f.type === 'restriction');
+  const dbPayments = masterFilters.filter(f => f.type === 'payment');
 
   return (
     <div className="max-w-7xl mx-auto w-full flex flex-col gap-10 py-6">
@@ -112,27 +125,35 @@ export default function Home() {
               <input type="range" min="500" max="3000" step="100" value={price} onChange={(e) => setPrice(parseInt(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg accent-orange-600" />
             </div>
 
+            {/* ✅ DYNAMICALLY MAPPED FROM DATABASE */}
             {[
-              { label: t('filter_cuisine', 'ジャンル'), state: cuisines, setter: setCuisines, options: FILTER_CATEGORIES.cuisines },
-              { label: t('filter_dietary', '食事制限'), state: restrictions, setter: setRestrictions, options: FILTER_CATEGORIES.restrictions },
-              { label: t('filter_payment', '決済方法'), state: payments, setter: setPayments, options: FILTER_CATEGORIES.payments }
+              { label: t('filter_cuisine', 'ジャンル'), state: cuisines, setter: setCuisines, dbOptions: dbCuisines },
+              { label: t('filter_dietary', '食事制限'), state: restrictions, setter: setRestrictions, dbOptions: dbRestrictions },
+              { label: t('filter_payment', '決済方法'), state: payments, setter: setPayments, dbOptions: dbPayments }
             ].map((group, idx) => (
               <div key={idx} className="mb-8">
                 <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{group.label}</label>
                 <div className="flex flex-wrap gap-2">
-                  {group.options.map((optId) => (
-                    <button 
-                      key={optId} onClick={() => toggleArrayItem(group.setter, group.state, optId)}
-                      className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${group.state.includes(optId) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                    >
-                      {t(`tag_${optId}`, optId)}
-                    </button>
-                  ))}
+                  {group.dbOptions.map((opt) => {
+                    const isSelected = group.state.includes(opt.name);
+                    // ✅ Fetches translation dynamically from the tag object!
+                    const displayName = lang === 'ja' ? opt.name : (opt.translations?.[lang] || opt.name);
+
+                    return (
+                      <button 
+                        key={opt.id} 
+                        onClick={() => toggleArrayItem(group.setter, group.state, opt.name)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition ${isSelected ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                      >
+                        {displayName}
+                      </button>
+                    )
+                  })}
                 </div>
               </div>
             ))}
 
-            {/* THE ACTUAL DYNAMIC CMS CATEGORIES (Hardcoded block deleted) */}
+            {/* Custom Categories (Events) */}
             {cmsCategories.length > 0 && (
               <div className="mb-2">
                 <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_other', 'オプション')}</label>

@@ -21,12 +21,12 @@ export default function AdminDashboard() {
   const [appLanguages, setAppLanguages] = useState<any[]>([]);
   const [uiTranslations, setUiTranslations] = useState<any[]>([]);
 
-  // --- MASTER DATA HUB STATES (Cuisine, Payment, etc.) ---
+  // --- MASTER DATA HUB STATES (Cuisine, Payment, Area, etc.) ---
   const [newFilterName, setNewFilterName] = useState('');
-  const [newFilterType, setNewFilterType] = useState<'cuisine' | 'restriction' | 'payment'>('cuisine');
+  const [newFilterType, setNewFilterType] = useState<'cuisine' | 'restriction' | 'payment' | 'area'>('cuisine');
 
   // --- TRANSLATION ENGINE STATES ---
-  const [transSubTab, setTransSubTab] = useState<'global' | 'restaurants'>('global');
+  const [transSubTab, setTransSubTab] = useState<'global' | 'tags' | 'restaurants'>('global');
   const [selectedTransRestId, setSelectedTransRestId] = useState<string>('');
   const [selectedTransLang, setSelectedTransLang] = useState<string>('');
   const [transDraft, setTransDraft] = useState({ title: '', description: '', full_menu: '', takeout_menu: '', category_collabs: {} as any });
@@ -136,7 +136,7 @@ export default function AdminDashboard() {
     const { error } = await supabase.from('filter_options').insert([{ 
       name: newFilterName.trim(), 
       type: newFilterType,
-      translations: { en: newFilterName.trim() } 
+      translations: {} // Start empty, handle multi-lang dynamically
     }]);
     if (!error) { setNewFilterName(''); fetchAllData(); }
   };
@@ -145,6 +145,17 @@ export default function AdminDashboard() {
     if (confirm('Permanently delete this filter tag?')) {
       await supabase.from('filter_options').delete().eq('id', id);
       fetchAllData();
+    }
+  };
+
+  // --- HELPER: MAP CMS TYPE TO DB COLUMN ---
+  const getDbField = (type: string) => {
+    switch (type) {
+      case 'cuisine': return 'cuisine';
+      case 'restriction': return 'food_restrictions';
+      case 'payment': return 'payment_methods';
+      case 'area': return 'restaurant_area';
+      default: return type;
     }
   };
 
@@ -280,6 +291,7 @@ export default function AdminDashboard() {
             <div className="space-y-10">
               <div className="flex gap-4 border-b border-gray-100 pb-2">
                 <button onClick={() => setTransSubTab('global')} className={`pb-2 px-2 font-black border-b-4 transition ${transSubTab === 'global' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-300'}`}>Global UI</button>
+                <button onClick={() => setTransSubTab('tags')} className={`pb-2 px-2 font-black border-b-4 transition ${transSubTab === 'tags' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-300'}`}>Master Tags</button>
                 <button onClick={() => setTransSubTab('restaurants')} className={`pb-2 px-2 font-black border-b-4 transition ${transSubTab === 'restaurants' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-300'}`}>Restaurant Content</button>
               </div>
 
@@ -325,6 +337,53 @@ export default function AdminDashboard() {
                 </div>
               )}
 
+              {/* NEW TAGS TRANSLATION TAB */}
+              {transSubTab === 'tags' && (
+                <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200 overflow-x-auto animate-in fade-in">
+                  <h2 className="text-2xl font-black mb-4">Tag Translations</h2>
+                  <p className="text-sm text-gray-500 mb-6">Translate your cuisines, dietary restrictions, and payment methods here. These will sync instantly to the homepage filters.</p>
+                  
+                  <table className="w-full text-left">
+                    <thead>
+                      <tr className="border-b-2">
+                        <th className="p-3 text-xs font-black text-gray-400 uppercase w-32">Type</th>
+                        <th className="p-3 text-xs font-black text-gray-400 uppercase">Tag (JA)</th>
+                        {translationLangs.map(l => (
+                          <th key={l.code} className="p-3 text-xs font-black text-blue-600 uppercase">{l.name}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {masterFilters.map(filter => (
+                        <tr key={filter.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
+                          <td className="p-3 text-xs font-bold text-gray-400 uppercase tracking-widest">{filter.type}</td>
+                          <td className="p-3 font-bold text-gray-900">{filter.name}</td>
+                          {translationLangs.map(l => (
+                            <td key={l.code} className="p-2">
+                              <input 
+                                type="text" 
+                                value={filter.translations?.[l.code] || ''} 
+                                placeholder={`Translate to ${l.name}...`}
+                                onChange={(e) => { 
+                                  const ut = { ...filter.translations, [l.code]: e.target.value }; 
+                                  setMasterFilters(masterFilters.map(f => f.id === filter.id ? {...f, translations: ut} : f)); 
+                                }}
+                                onBlur={async (e) => { 
+                                  const ut = { ...filter.translations, [l.code]: e.target.value }; 
+                                  await supabase.from('filter_options').update({ translations: ut }).eq('id', filter.id); 
+                                  fetchAllData(); 
+                                }} 
+                                className="w-full p-3 border border-gray-100 rounded-xl text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none" 
+                              />
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {transSubTab === 'restaurants' && (
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
@@ -364,7 +423,7 @@ export default function AdminDashboard() {
 
           {/* TAB: CATEGORY & MASTER HUB */}
           {activeTab === 'categories' && (
-            <div className="max-w-5xl space-y-12 pb-20">
+            <div className="max-w-6xl space-y-12 pb-20">
               
               {/* SECTION: EVENTS */}
               <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
@@ -404,29 +463,27 @@ export default function AdminDashboard() {
               {/* SECTION: MASTER TAGS */}
               <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
                 <h2 className="text-3xl font-black mb-2">🏷️ Master Filter Tags</h2>
-                <p className="text-sm text-gray-500 mb-8 font-medium">Manage Cuisines, Dietary, and Payments site-wide.</p>
+                <p className="text-sm text-gray-500 mb-8 font-medium">Manage Cuisines, Dietary, Areas, and Payments site-wide.</p>
 
                 <form onSubmit={addMasterFilter} className="flex flex-wrap gap-4 mb-10 p-6 bg-gray-50 rounded-3xl border border-gray-100">
                   <select value={newFilterType} onChange={(e: any) => setNewFilterType(e.target.value)} className="p-3 border rounded-xl font-bold bg-white">
                     <option value="cuisine">🍜 Cuisine</option>
                     <option value="restriction">🥗 Dietary</option>
                     <option value="payment">💳 Payment</option>
+                    <option value="area">🗺️ Area</option>
                   </select>
                   <input type="text" value={newFilterName} onChange={(e) => setNewFilterName(e.target.value)} placeholder="Tag Name" className="flex-1 p-3 border rounded-xl font-bold" />
                   <button type="submit" className="bg-orange-600 text-white font-black px-8 py-3 rounded-xl hover:bg-orange-700 transition">Add Tag</button>
                 </form>
 
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-                  {['cuisine', 'restriction', 'payment'].map((type) => (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+                  {['cuisine', 'restriction', 'payment', 'area'].map((type) => (
                     <div key={type} className="space-y-4">
                       <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2">{type}s</h3>
-                      <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-3">
                         {masterFilters.filter(f => f.type === type).map(filter => (
-                          <div key={filter.id} className="group flex justify-between items-center p-4 bg-white border border-gray-100 rounded-2xl hover:border-orange-200 transition shadow-sm">
-                            <div className="flex flex-col">
-                              <span className="text-sm font-black text-gray-800">{filter.name}</span>
-                              <input type="text" value={filter.translations?.en || ''} className="text-[10px] font-bold text-blue-500 bg-transparent outline-none" onBlur={async (e) => { const ut = { ...filter.translations, en: e.target.value }; await supabase.from('filter_options').update({ translations: ut }).eq('id', filter.id); fetchAllData(); }} onChange={(e) => { setMasterFilters(masterFilters.map(f => f.id === filter.id ? {...f, translations: {...f.translations, en: e.target.value}} : f)); }} />
-                            </div>
+                          <div key={filter.id} className="group flex justify-between items-center p-4 bg-white border border-gray-100 rounded-2xl hover:border-orange-200 transition shadow-sm relative">
+                            <span className="text-sm font-black text-gray-800">{filter.name}</span>
                             <button onClick={() => deleteMasterFilter(filter.id)} className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition">✕</button>
                           </div>
                         ))}
@@ -541,25 +598,28 @@ export default function AdminDashboard() {
               {/* DYNAMIC MASTER TAGS SECTION */}
               <section className="space-y-8">
                 <h3 className="text-xl font-black text-gray-900 border-b pb-2">Master Filter Tags</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
-                  {['cuisine', 'restriction', 'payment'].map(type => (
-                    <div key={type}>
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">{type}s</label>
-                      <div className="flex flex-col gap-2">
-                        {masterFilters.filter(f => f.type === type).map(opt => (
-                          <label key={opt.id} className="flex items-center cursor-pointer p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition">
-                            <input 
-                              type="checkbox" 
-                              checked={(editingData[type === 'cuisine' ? 'cuisine' : type === 'restriction' ? 'food_restrictions' : 'payment_methods'] || []).includes(opt.name)} 
-                              onChange={() => toggleEditArray(type === 'cuisine' ? 'cuisine' : type === 'restriction' ? 'food_restrictions' : 'payment_methods', opt.name)} 
-                              className={`mr-3 h-5 w-5 ${type === 'cuisine' ? 'accent-orange-600' : type === 'restriction' ? 'accent-green-600' : 'accent-blue-600'}`} 
-                            />
-                            <span className="text-sm font-bold text-gray-700">{opt.name}</span>
-                          </label>
-                        ))}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+                  {['cuisine', 'restriction', 'payment', 'area'].map(type => {
+                    const dbField = getDbField(type);
+                    return (
+                      <div key={type}>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">{type}s</label>
+                        <div className="flex flex-col gap-2">
+                          {masterFilters.filter(f => f.type === type).map(opt => (
+                            <label key={opt.id} className="flex items-center cursor-pointer p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition">
+                              <input 
+                                type="checkbox" 
+                                checked={(editingData[dbField] || []).includes(opt.name)} 
+                                onChange={() => toggleEditArray(dbField, opt.name)} 
+                                className={`mr-3 h-5 w-5 ${type === 'cuisine' ? 'accent-orange-600' : type === 'restriction' ? 'accent-green-600' : 'accent-blue-600'}`} 
+                              />
+                              <span className="text-sm font-bold text-gray-700">{opt.name}</span>
+                            </label>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </section>
 
