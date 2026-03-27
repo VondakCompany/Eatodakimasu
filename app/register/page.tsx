@@ -20,6 +20,14 @@ export default function RegisterRestaurant() {
     
     const formData = new FormData(e.currentTarget);
     
+    // ✅ Capture manual hours dynamically into a structured JSON object
+    const structuredHours: Record<string, string> = {};
+    if (hoursSource === 'manual') {
+      DAYS.forEach(day => {
+        structuredHours[day] = (formData.get(`hours_${day}`) as string) || '';
+      });
+    }
+
     const newRestaurant = {
       title: formData.get('title'),
       description: formData.get('description'),
@@ -35,13 +43,18 @@ export default function RegisterRestaurant() {
       contact_email: formData.get('contact_email'),
       contact_phone: formData.get('contact_phone'),
       address: formData.get('address'),
-      // REMOVED: google_map_url
       payment_methods: formData.getAll('payment'),
       website_url: formData.get('website_url'),
       atom_currency: formData.get('atom_currency') === 'yes',
       discount_info: formData.get('discount_details'),
       photo_method: photoMethod,
       admin_notes: formData.get('questions'),
+      
+      // ✅ New Tracking Payload
+      hours_source: hoursSource,
+      operating_hours: hoursSource === 'manual' ? structuredHours : null,
+      lat: null, // Ready for geocoding Phase
+      lng: null, // Ready for geocoding Phase
     };
 
     const { error } = await supabase.from('restaurants').insert([newRestaurant]);
@@ -52,6 +65,8 @@ export default function RegisterRestaurant() {
     } else {
       setMessage('情報の送信が完了しました！ご協力誠にありがとうございます。');
       (e.target as HTMLFormElement).reset();
+      setHoursSource('google'); // Reset states
+      setTakeout(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -112,8 +127,6 @@ export default function RegisterRestaurant() {
               <label className="block text-sm font-bold text-gray-700 mb-2">住所 <span className="ml-2 text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">🌐 サイト公開</span></label>
               <input name="address" type="text" className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none transition" placeholder="例：東京都新宿区西早稲田1-2-3" />
             </div>
-            
-            {/* REMOVED: Google Map URL Input */}
           </div>
         </section>
 
@@ -139,7 +152,7 @@ export default function RegisterRestaurant() {
 
           {hoursSource === 'manual' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-2xl border border-gray-200">
-              <p className="md:col-span-2 text-sm text-gray-500 mb-2 font-medium">※ 定休日の場合は「定休日」、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。</p>
+              <p className="md:col-span-2 text-sm text-gray-500 mb-2 font-medium">※ 定休日の場合は「定休」、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。</p>
               {DAYS.map((day) => (
                 <div key={day} className="flex items-center bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
                   <span className="w-24 font-bold text-gray-700">{day}</span>

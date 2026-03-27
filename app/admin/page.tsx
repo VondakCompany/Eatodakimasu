@@ -21,7 +21,7 @@ export default function AdminDashboard() {
   const [appLanguages, setAppLanguages] = useState<any[]>([]);
   const [uiTranslations, setUiTranslations] = useState<any[]>([]);
 
-  // --- MASTER DATA HUB STATES (Cuisine, Payment, Area, etc.) ---
+  // --- MASTER DATA HUB STATES ---
   const [newFilterName, setNewFilterName] = useState('');
   const [newFilterType, setNewFilterType] = useState<'cuisine' | 'restriction' | 'payment' | 'area'>('cuisine');
 
@@ -37,11 +37,17 @@ export default function AdminDashboard() {
 
   // --- EDIT & EVENT STATES ---
   const [newCategoryName, setNewCategoryName] = useState('');
+  const [newCategoryStartDate, setNewCategoryStartDate] = useState('');
+  const [newCategoryEndDate, setNewCategoryEndDate] = useState('');
+  const [newCategoryIsConstant, setNewCategoryIsConstant] = useState(false); // ✅ Added constant state
   const [editingData, setEditingData] = useState<any | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [managingCategory, setManagingCategory] = useState<string | null>(null);
   const [categoryParticipants, setCategoryParticipants] = useState<string[]>([]);
   const [savingParticipants, setSavingParticipants] = useState(false);
+
+  // --- BATCH PROCESSING STATE ---
+  const [batchStatus, setBatchStatus] = useState<{ total: number, current: number, isRunning: boolean } | null>(null);
 
   // --- INITIAL FETCH ---
   useEffect(() => {
@@ -66,6 +72,62 @@ export default function AdminDashboard() {
     if (langs.data) setAppLanguages(langs.data);
     if (trans.data) setUiTranslations(trans.data);
     setLoading(false);
+  };
+
+  // --- GOOGLE MAPS GEOCODING HELPER ---
+  const geocodeAddress = async (address: string) => {
+    if (!address) return { lat: null, lng: null };
+    try {
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY;
+      if (!apiKey) {
+        alert("Google Maps API Key is missing! Add NEXT_PUBLIC_GOOGLE_MAPS_API_KEY to .env.local");
+        return { lat: null, lng: null };
+      }
+      
+      const res = await fetch(`https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(address)}&key=${apiKey}`);
+      const data = await res.json();
+      
+      if (data.results && data.results.length > 0) {
+        const { lat, lng } = data.results[0].geometry.location;
+        return { lat, lng };
+      }
+    } catch (error) {
+      console.error('Geocoding error:', error);
+    }
+    return { lat: null, lng: null };
+  };
+
+  // --- BATCH UPDATE COORDINATES ---
+  const batchUpdateCoordinates = async () => {
+    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    const targets = allRests.filter(r => !r.lat || !r.lng);
+
+    if (targets.length === 0) {
+      alert("All restaurants already have coordinates!");
+      return;
+    }
+
+    if (!confirm(`Found ${targets.length} restaurants missing coordinates. Start batch update?`)) return;
+
+    setBatchStatus({ total: targets.length, current: 0, isRunning: true });
+
+    for (let i = 0; i < targets.length; i++) {
+      const rest = targets[i];
+      setBatchStatus(prev => prev ? { ...prev, current: i + 1 } : null);
+
+      if (rest.address) {
+        const { lat, lng } = await geocodeAddress(rest.address);
+        if (lat && lng) {
+          await supabase.from('restaurants').update({ lat, lng }).eq('id', rest.id);
+        }
+      }
+      // Small delay to avoid API rate limiting
+      await new Promise(r => setTimeout(r, 200)); 
+    }
+
+    setBatchStatus(null);
+    alert("Batch update complete!");
+    fetchAllData();
   };
 
   // --- TRANSLATION EFFECTS ---
@@ -136,7 +198,7 @@ export default function AdminDashboard() {
     const { error } = await supabase.from('filter_options').insert([{ 
       name: newFilterName.trim(), 
       type: newFilterType,
-      translations: {} // Start empty, handle multi-lang dynamically
+      translations: {} 
     }]);
     if (!error) { setNewFilterName(''); fetchAllData(); }
   };
@@ -148,15 +210,12 @@ export default function AdminDashboard() {
     }
   };
 
-  // ✅ SMART CASCADING UPDATE: Changes tag name AND updates all connected restaurants
   const updateBaseTagName = async (id: string, oldName: string, newName: string, type: string) => {
     const safeNewName = newName.trim();
     if (!safeNewName || safeNewName === oldName) return;
 
-    // 1. Update the tag table
     await supabase.from('filter_options').update({ name: safeNewName }).eq('id', id);
 
-    // 2. Safely update all restaurants that use this tag so they don't lose their data
     const dbField = getDbField(type);
     const allRests = [...liveRestaurants, ...pendingSubmissions];
     
@@ -175,7 +234,6 @@ export default function AdminDashboard() {
     fetchAllData();
   };
 
-  // --- HELPER: MAP CMS TYPE TO DB COLUMN ---
   const getDbField = (type: string) => {
     switch (type) {
       case 'cuisine': return 'cuisine';
@@ -190,8 +248,24 @@ export default function AdminDashboard() {
   const addCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCategoryName.trim()) return;
-    const { error } = await supabase.from('custom_categories').insert([{ name: newCategoryName.trim() }]);
-    if (!error) { setNewCategoryName(''); fetchAllData(); }
+    
+    const payload: any = { 
+      name: newCategoryName.trim(),
+      show_badge: false,
+      is_constant: newCategoryIsConstant // ✅ Added is_constant payload
+    };
+    if (newCategoryStartDate && !newCategoryIsConstant) payload.start_date = new Date(newCategoryStartDate).toISOString();
+    if (newCategoryEndDate && !newCategoryIsConstant) payload.end_date = new Date(newCategoryEndDate).toISOString();
+
+    const { error } = await supabase.from('custom_categories').insert([payload]);
+    
+    if (!error) { 
+      setNewCategoryName(''); 
+      setNewCategoryStartDate('');
+      setNewCategoryEndDate('');
+      setNewCategoryIsConstant(false); // ✅ Resetting constant state
+      fetchAllData(); 
+    }
   };
 
   const deleteCategory = async (id: string, name: string) => {
@@ -236,9 +310,22 @@ export default function AdminDashboard() {
   };
 
   // --- LOGIC: RESTAURANT ACTIONS ---
-  const updateStatus = async (id: string, newStatus: string, title: string) => {
-    if (confirm(`Change status of "${title}" to ${newStatus}?`)) {
-      await supabase.from('restaurants').update({ status: newStatus }).eq('id', id);
+  const updateStatus = async (restaurant: any, newStatus: string) => {
+    if (confirm(`Change status of "${restaurant.title}" to ${newStatus}?`)) {
+      setLoading(true);
+      
+      let updates: any = { status: newStatus };
+
+      // AUTO-GEOCODE IF APPROVING AND MISSING COORDS
+      if (newStatus === 'approved' && restaurant.address && !restaurant.lat) {
+        const { lat, lng } = await geocodeAddress(restaurant.address);
+        if (lat && lng) {
+          updates.lat = lat;
+          updates.lng = lng;
+        }
+      }
+
+      await supabase.from('restaurants').update(updates).eq('id', restaurant.id);
       fetchAllData();
     }
   };
@@ -271,11 +358,26 @@ export default function AdminDashboard() {
 
   const saveEdits = async () => {
     if (!editingData) return;
-    const { error } = await supabase.from('restaurants').update(editingData).eq('id', editingData.id);
+    setLoading(true);
+    
+    let updates = { ...editingData };
+    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    const original = allRests.find(r => r.id === editingData.id);
+
+    // AUTO-GEOCODE IF ADDRESS CHANGED
+    if (original && original.address !== editingData.address) {
+      const { lat, lng } = await geocodeAddress(editingData.address);
+      if (lat && lng) {
+        updates.lat = lat;
+        updates.lng = lng;
+      }
+    }
+
+    const { error } = await supabase.from('restaurants').update(updates).eq('id', editingData.id);
     if (!error) { setEditingData(null); fetchAllData(); }
+    else { setLoading(false); }
   };
 
-  // --- RENDER HELPERS ---
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
@@ -297,7 +399,19 @@ export default function AdminDashboard() {
       
       {/* HEADER */}
       <div className="flex justify-between items-end mb-8 border-b border-gray-200 pb-4">
-        <h1 className="text-4xl font-black text-gray-900 tracking-tight">Admin CMS</h1>
+        <div>
+          <h1 className="text-4xl font-black text-gray-900 tracking-tight">Admin CMS</h1>
+          {/* SYNC COORDINATES BUTTON */}
+          <button 
+            onClick={batchUpdateCoordinates} 
+            disabled={batchStatus?.isRunning}
+            className="mt-2 text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50"
+          >
+            {batchStatus?.isRunning 
+              ? `⚙️ Syncing... (${batchStatus.current}/${batchStatus.total})` 
+              : "📍 Missing Coordinates Sync"}
+          </button>
+        </div>
         <button onClick={() => setIsAuthenticated(false)} className="text-sm font-bold text-gray-400 hover:text-red-500 transition">Logout</button>
       </div>
 
@@ -347,6 +461,14 @@ export default function AdminDashboard() {
                         </tr>
                       </thead>
                       <tbody>
+                        <tr className="border-b border-gray-100">
+                          <td className="p-2">
+                            <form onSubmit={addTranslationKey} className="flex">
+                              <input type="text" value={newTransKey} onChange={(e) => setNewTransKey(e.target.value)} placeholder="New Key (e.g. badge_limited)" className="w-full p-2 border border-blue-200 rounded-lg text-sm font-bold bg-blue-50" />
+                            </form>
+                          </td>
+                          <td colSpan={appLanguages.length + 1}></td>
+                        </tr>
                         {uiTranslations.map(trans => (
                           <tr key={trans.translation_key} className="border-b border-gray-50">
                             <td className="p-3 font-mono text-xs font-bold text-gray-400">{trans.translation_key}</td>
@@ -364,12 +486,9 @@ export default function AdminDashboard() {
                 </div>
               )}
 
-              {/* TAGS SPREADSHEET */}
               {transSubTab === 'tags' && (
                 <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200 overflow-x-auto animate-in fade-in">
                   <h2 className="text-2xl font-black mb-4">Tag Translations</h2>
-                  <p className="text-sm text-gray-500 mb-6">Translate your cuisines, dietary restrictions, and payment methods here. Editing the JA column will safely update all connected restaurants automatically.</p>
-                  
                   <table className="w-full text-left">
                     <thead>
                       <tr className="border-b-2">
@@ -385,7 +504,6 @@ export default function AdminDashboard() {
                         <tr key={filter.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
                           <td className="p-3 text-xs font-bold text-gray-400 uppercase tracking-widest">{filter.type}</td>
                           <td className="p-3">
-                            {/* ✅ Editable Base Name (Triggers the cascading update) */}
                             <input 
                               type="text" 
                               defaultValue={filter.name}
@@ -398,7 +516,6 @@ export default function AdminDashboard() {
                               <input 
                                 type="text" 
                                 value={filter.translations?.[l.code] || ''} 
-                                placeholder={`Translate to ${l.name}...`}
                                 onChange={(e) => { 
                                   const ut = { ...filter.translations, [l.code]: e.target.value }; 
                                   setMasterFilters(masterFilters.map(f => f.id === filter.id ? {...f, translations: ut} : f)); 
@@ -408,7 +525,7 @@ export default function AdminDashboard() {
                                   await supabase.from('filter_options').update({ translations: ut }).eq('id', filter.id); 
                                   fetchAllData(); 
                                 }} 
-                                className="w-full p-3 border border-gray-100 rounded-xl text-sm focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none" 
+                                className="w-full p-3 border border-gray-100 rounded-xl text-sm focus:border-blue-400 outline-none" 
                               />
                             </td>
                           ))}
@@ -459,35 +576,93 @@ export default function AdminDashboard() {
           {/* TAB: CATEGORY & MASTER HUB */}
           {activeTab === 'categories' && (
             <div className="max-w-6xl space-y-12 pb-20">
-              
-              {/* SECTION: EVENTS */}
               <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
                 <h2 className="text-3xl font-black mb-2">🎉 Event Management (DMS)</h2>
-                <p className="text-sm text-gray-500 mb-8 font-medium">Manage global event descriptions and bulk assign restaurants.</p>
-                
-                <form onSubmit={addCategory} className="flex gap-4 mb-10 border-b pb-10">
-                  <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New Event Name" className="flex-1 p-4 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-purple-500" />
-                  <button type="submit" className="bg-purple-600 text-white font-black px-10 rounded-2xl hover:bg-purple-700 transition shadow-lg">Create</button>
+                {/* ✅ Added constant checkbox and disabled logic for dates */}
+                <form onSubmit={addCategory} className="flex flex-wrap items-center gap-4 mb-10 border-b pb-10 bg-gray-50 p-6 rounded-3xl">
+                  <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New Event Name" className="flex-1 min-w-[200px] p-4 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-purple-500" />
+                  
+                  <label className="flex items-center cursor-pointer gap-2 px-2">
+                    <input type="checkbox" checked={newCategoryIsConstant} onChange={(e) => setNewCategoryIsConstant(e.target.checked)} className="w-5 h-5 accent-purple-600" />
+                    <span className="text-[10px] font-black text-gray-500 uppercase tracking-widest">Constant Event</span>
+                  </label>
+
+                  <div className={`flex items-center gap-3 ${newCategoryIsConstant ? 'opacity-30 pointer-events-none' : ''}`}>
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">START</span>
+                    <input type="date" value={newCategoryStartDate} onChange={(e) => setNewCategoryStartDate(e.target.value)} className="p-4 border rounded-2xl font-bold text-gray-700" />
+                  </div>
+                  <div className={`flex items-center gap-3 ${newCategoryIsConstant ? 'opacity-30 pointer-events-none' : ''}`}>
+                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">END</span>
+                    <input type="date" value={newCategoryEndDate} onChange={(e) => setNewCategoryEndDate(e.target.value)} className="p-4 border rounded-2xl font-bold text-gray-700" />
+                  </div>
+                  <button type="submit" className="bg-purple-600 text-white font-black px-10 py-4 rounded-2xl hover:bg-purple-700 transition shadow-lg w-full md:w-auto">Create Event</button>
                 </form>
 
                 <div className="space-y-6">
                   {customCategories.map(cat => (
-                    <div key={cat.id} className="bg-gray-50 rounded-3xl border border-gray-200 overflow-hidden">
+                    <div key={cat.id} className="bg-gray-50 rounded-3xl border border-gray-200 overflow-hidden shadow-sm">
                       <div className="p-6 flex justify-between items-center bg-white border-b border-gray-100">
                         <span className="font-black text-xl text-gray-900">{cat.name}</span>
                         <div className="flex gap-3">
                           <button onClick={() => openManageCategory(cat.name)} className="bg-purple-600 text-white px-5 py-2 rounded-xl font-bold text-xs shadow-md">👥 Participants</button>
-                          <button onClick={() => deleteCategory(cat.id, cat.name)} className="text-red-400 font-bold text-xs px-2">Delete</button>
+                          <button onClick={() => deleteCategory(cat.id, cat.name)} className="text-red-400 font-bold text-xs px-2 hover:bg-red-50 rounded-md">Delete</button>
                         </div>
                       </div>
+                      
+                      {/* ✅ Modified to grid-cols-4 and added constant toggle */}
+                      <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 border-b border-gray-100 bg-white items-end">
+                        <div className="flex items-center h-full pb-3">
+                           <label className="flex items-center cursor-pointer gap-3 p-3 border border-purple-200 bg-purple-50 rounded-xl w-full hover:bg-purple-100 transition">
+                              <input type="checkbox" checked={cat.is_constant || false} 
+                                     onChange={async (e) => { await supabase.from('custom_categories').update({ is_constant: e.target.checked }).eq('id', cat.id); fetchAllData(); }} 
+                                     className="w-5 h-5 accent-purple-600" />
+                              <span className="text-sm font-bold text-purple-900">Permanent Event</span>
+                           </label>
+                        </div>
+                        <div className={cat.is_constant ? 'opacity-40 pointer-events-none' : ''}>
+                           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Active Start Date</label>
+                           <input type="date" value={cat.start_date ? cat.start_date.split('T')[0] : ''} 
+                                  onChange={(e) => setCustomCategories(customCategories.map(c => c.id === cat.id ? {...c, start_date: e.target.value} : c))}
+                                  onBlur={async (e) => { await supabase.from('custom_categories').update({ start_date: e.target.value ? new Date(e.target.value).toISOString() : null }).eq('id', cat.id); fetchAllData(); }}
+                                  className="w-full p-3 border border-gray-200 rounded-xl text-sm font-bold text-gray-700 outline-none" />
+                        </div>
+                        <div className={cat.is_constant ? 'opacity-40 pointer-events-none' : ''}>
+                           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Active End Date</label>
+                           <input type="date" value={cat.end_date ? cat.end_date.split('T')[0] : ''} 
+                                  onChange={(e) => setCustomCategories(customCategories.map(c => c.id === cat.id ? {...c, end_date: e.target.value} : c))}
+                                  onBlur={async (e) => { await supabase.from('custom_categories').update({ end_date: e.target.value ? new Date(e.target.value).toISOString() : null }).eq('id', cat.id); fetchAllData(); }}
+                                  className="w-full p-3 border border-gray-200 rounded-xl text-sm font-bold text-gray-700 outline-none" />
+                        </div>
+                        <div className="flex items-center h-full pb-3">
+                           <label className="flex items-center cursor-pointer gap-3 p-3 border border-gray-200 rounded-xl w-full hover:bg-gray-50 transition">
+                              <input type="checkbox" checked={cat.show_badge || false} 
+                                     onChange={async (e) => { await supabase.from('custom_categories').update({ show_badge: e.target.checked }).eq('id', cat.id); fetchAllData(); }} 
+                                     className="w-5 h-5 accent-purple-600" />
+                              <span className="text-sm font-bold text-gray-700">Display Badge on Cards</span>
+                           </label>
+                        </div>
+                      </div>
+
                       <div className="p-8 grid grid-cols-1 md:grid-cols-2 gap-8">
                         <div>
                           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Global Rules (JA)</label>
-                          <textarea rows={4} value={cat.description || ''} className="w-full p-4 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-purple-500" placeholder="Main event description..." onBlur={async (e) => { await supabase.from('custom_categories').update({ description: e.target.value }).eq('id', cat.id); fetchAllData(); }} onChange={(e) => setCustomCategories(customCategories.map(c => c.id === cat.id ? {...c, description: e.target.value} : c))} />
+                          <textarea rows={4} value={cat.description || ''} className="w-full p-4 border rounded-2xl text-sm outline-none focus:ring-2 focus:ring-purple-500" 
+                                    onBlur={async (e) => { await supabase.from('custom_categories').update({ description: e.target.value }).eq('id', cat.id); fetchAllData(); }} 
+                                    onChange={(e) => setCustomCategories(customCategories.map(c => c.id === cat.id ? {...c, description: e.target.value} : c))} />
                         </div>
-                        <div>
-                          <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-2">Global Rules (EN)</label>
-                          <textarea rows={4} value={cat.translations?.en?.description || ''} className="w-full p-4 border border-blue-100 bg-blue-50/20 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="English event description..." onBlur={async (e) => { const ut = { ...cat.translations, en: { ...cat.translations?.en, description: e.target.value } }; await supabase.from('custom_categories').update({ translations: ut }).eq('id', cat.id); fetchAllData(); }} onChange={(e) => { const ut = { ...cat.translations, en: { ...cat.translations?.en, description: e.target.value } }; setCustomCategories(customCategories.map(c => c.id === cat.id ? {...c, translations: ut} : c)); }} />
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-2">Translated Name (EN)</label>
+                            <input type="text" value={cat.translations?.en?.name || ''} className="w-full p-3 border border-blue-100 bg-blue-50/20 rounded-xl text-sm font-bold" 
+                                   onBlur={async (e) => { const ut = { ...cat.translations, en: { ...cat.translations?.en, name: e.target.value } }; await supabase.from('custom_categories').update({ translations: ut }).eq('id', cat.id); fetchAllData(); }} 
+                                   onChange={(e) => { const ut = { ...cat.translations, en: { ...cat.translations?.en, name: e.target.value } }; setCustomCategories(customCategories.map(c => c.id === cat.id ? {...c, translations: ut} : c)); }} />
+                          </div>
+                          <div>
+                            <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-2">Global Rules (EN)</label>
+                            <textarea rows={2} value={cat.translations?.en?.description || ''} className="w-full p-4 border border-blue-100 bg-blue-50/20 rounded-2xl text-sm" 
+                                      onBlur={async (e) => { const ut = { ...cat.translations, en: { ...cat.translations?.en, description: e.target.value } }; await supabase.from('custom_categories').update({ translations: ut }).eq('id', cat.id); fetchAllData(); }} 
+                                      onChange={(e) => { const ut = { ...cat.translations, en: { ...cat.translations?.en, description: e.target.value } }; setCustomCategories(customCategories.map(c => c.id === cat.id ? {...c, translations: ut} : c)); }} />
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -495,11 +670,9 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              {/* SECTION: MASTER TAGS */}
+              {/* MASTER TAGS SECTION */}
               <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
                 <h2 className="text-3xl font-black mb-2">🏷️ Master Filter Tags</h2>
-                <p className="text-sm text-gray-500 mb-8 font-medium">Manage Cuisines, Dietary, Areas, and Payments site-wide.</p>
-
                 <form onSubmit={addMasterFilter} className="flex flex-wrap gap-4 mb-10 p-6 bg-gray-50 rounded-3xl border border-gray-100">
                   <select value={newFilterType} onChange={(e: any) => setNewFilterType(e.target.value)} className="p-3 border rounded-xl font-bold bg-white">
                     <option value="cuisine">🍜 Cuisine</option>
@@ -518,13 +691,9 @@ export default function AdminDashboard() {
                       <div className="flex flex-col gap-3">
                         {masterFilters.filter(f => f.type === type).map(filter => (
                           <div key={filter.id} className="group flex justify-between items-center p-4 bg-white border border-gray-100 rounded-2xl hover:border-orange-200 transition shadow-sm relative">
-                            {/* ✅ Editable Base Name in the Category Hub too! */}
-                            <input 
-                              type="text" 
-                              defaultValue={filter.name}
-                              onBlur={(e) => updateBaseTagName(filter.id, filter.name, e.target.value, filter.type)}
-                              className="text-sm font-black text-gray-800 bg-transparent outline-none border-b border-transparent focus:border-orange-300 focus:border-dashed w-4/5"
-                            />
+                            <input type="text" defaultValue={filter.name} 
+                                   onBlur={(e) => updateBaseTagName(filter.id, filter.name, e.target.value, filter.type)}
+                                   className="text-sm font-black text-gray-800 bg-transparent outline-none border-b border-transparent focus:border-orange-300 w-4/5" />
                             <button onClick={() => deleteMasterFilter(filter.id)} className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition">✕</button>
                           </div>
                         ))}
@@ -546,17 +715,19 @@ export default function AdminDashboard() {
                   ) : (
                     <div className="w-full h-40 bg-gray-100 rounded-2xl mb-5 flex items-center justify-center text-gray-300 text-xs font-black">NO PHOTO</div>
                   )}
-                  <h3 className="text-xl font-black text-gray-900 truncate mb-1">{restaurant.title}</h3>
+                  <div className="flex justify-between items-start mb-1">
+                    <h3 className="text-xl font-black text-gray-900 truncate flex-1">{restaurant.title}</h3>
+                    {restaurant.lat && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded font-black">📍 GEO</span>}
+                  </div>
                   <p className="text-xs text-orange-500 font-bold mb-6">¥{restaurant.restaurant_price || '---'}</p>
-                  
                   <div className="flex gap-2 mt-auto">
-                    <button onClick={() => setEditingData(restaurant)} className="flex-1 bg-gray-900 text-white text-xs font-black py-3 rounded-xl hover:bg-black">✏️ Edit</button>
+                    <button onClick={() => setEditingData(restaurant)} className="flex-1 bg-gray-900 text-white text-xs font-black py-3 rounded-xl hover:bg-black transition">✏️ Edit</button>
                     {activeTab === 'directory' ? (
-                      <button onClick={() => updateStatus(restaurant.id, 'pending', restaurant.title)} className="flex-1 bg-gray-100 text-gray-600 text-xs font-black py-3 rounded-xl hover:bg-gray-200">Unpublish</button>
+                      <button onClick={() => updateStatus(restaurant, 'pending')} className="flex-1 bg-gray-100 text-gray-600 text-xs font-black py-3 rounded-xl hover:bg-gray-200 transition">Unpublish</button>
                     ) : (
-                      <button onClick={() => updateStatus(restaurant.id, 'approved', restaurant.title)} className="flex-1 bg-green-600 text-white text-xs font-black py-3 rounded-xl hover:bg-green-700">Approve</button>
+                      <button onClick={() => updateStatus(restaurant, 'approved')} className="flex-1 bg-green-600 text-white text-xs font-black py-3 rounded-xl hover:bg-green-700 transition">Approve</button>
                     )}
-                    <button onClick={() => deleteRestaurant(restaurant.id, restaurant.title)} className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-100">✕</button>
+                    <button onClick={() => deleteRestaurant(restaurant.id, restaurant.title)} className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition">✕</button>
                   </div>
                 </div>
               ))}
@@ -565,7 +736,7 @@ export default function AdminDashboard() {
         </>
       )}
 
-      {/* --- MODAL: BULK MANAGE CATEGORY PARTICIPANTS --- */}
+      {/* MODAL: BULK MANAGE CATEGORY PARTICIPANTS */}
       {managingCategory && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col relative overflow-hidden">
@@ -576,7 +747,6 @@ export default function AdminDashboard() {
               </div>
               <button onClick={() => setManagingCategory(null)} className="text-3xl font-black bg-purple-700 w-12 h-12 rounded-full flex items-center justify-center">✕</button>
             </div>
-            
             <div className="flex-1 overflow-y-auto p-8 space-y-3 bg-gray-50">
               {allRestaurantsList.sort((a,b) => a.title.localeCompare(b.title)).map(rest => {
                 const isSelected = categoryParticipants.includes(rest.id);
@@ -591,9 +761,8 @@ export default function AdminDashboard() {
                 );
               })}
             </div>
-
             <div className="p-8 bg-white border-t border-gray-100">
-              <button onClick={saveCategoryParticipants} disabled={savingParticipants} className="w-full bg-purple-600 text-white font-black py-5 rounded-3xl shadow-xl hover:bg-purple-700 transition disabled:opacity-50 text-lg">
+              <button onClick={saveCategoryParticipants} disabled={savingParticipants} className="w-full bg-purple-600 text-white font-black py-5 rounded-3xl hover:bg-purple-700 transition disabled:opacity-50 text-lg">
                 {savingParticipants ? 'SAVING...' : `Update ${categoryParticipants.length} Restaurants`}
               </button>
             </div>
@@ -601,7 +770,7 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* --- MODAL: RESTAURANT EDITOR --- */}
+      {/* MODAL: RESTAURANT EDITOR */}
       {editingData && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col relative">
@@ -614,8 +783,6 @@ export default function AdminDashboard() {
             </div>
 
             <div className="p-10 space-y-16">
-              
-              {/* EVENT & COLLAB SECTION */}
               <section className="p-8 bg-purple-50 rounded-[32px] border border-purple-100">
                 <h3 className="text-xl font-black text-purple-900 mb-6 flex items-center gap-2"><span>🎉</span> Participating Events & Shop Specifics</h3>
                 <div className="grid grid-cols-1 gap-4">
@@ -628,7 +795,7 @@ export default function AdminDashboard() {
                       {editingData.other_options?.includes(cat.name) && (
                         <div className="animate-in slide-in-from-top-2">
                            <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-2">Shop Collaboration Text (JA)</label>
-                           <textarea rows={2} value={editingData.category_collabs?.[cat.name] || ''} onChange={(e) => setEditingData({...editingData, category_collabs: { ...(editingData.category_collabs || {}), [cat.name]: e.target.value }})} placeholder="What is this shop doing for this specific event?" className="w-full p-4 border border-purple-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-purple-500" />
+                           <textarea rows={2} value={editingData.category_collabs?.[cat.name] || ''} onChange={(e) => setEditingData({...editingData, category_collabs: { ...(editingData.category_collabs || {}), [cat.name]: e.target.value }})} placeholder="Collab content..." className="w-full p-4 border border-purple-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-purple-500" />
                         </div>
                       )}
                     </div>
@@ -636,7 +803,6 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              {/* DYNAMIC MASTER TAGS SECTION */}
               <section className="space-y-8">
                 <h3 className="text-xl font-black text-gray-900 border-b pb-2">Master Filter Tags</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
@@ -648,12 +814,7 @@ export default function AdminDashboard() {
                         <div className="flex flex-col gap-2">
                           {masterFilters.filter(f => f.type === type).map(opt => (
                             <label key={opt.id} className="flex items-center cursor-pointer p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition">
-                              <input 
-                                type="checkbox" 
-                                checked={(editingData[dbField] || []).includes(opt.name)} 
-                                onChange={() => toggleEditArray(dbField, opt.name)} 
-                                className={`mr-3 h-5 w-5 ${type === 'cuisine' ? 'accent-orange-600' : type === 'restriction' ? 'accent-green-600' : 'accent-blue-600'}`} 
-                              />
+                              <input type="checkbox" checked={(editingData[dbField] || []).includes(opt.name)} onChange={() => toggleEditArray(dbField, opt.name)} className="mr-3 h-5 w-5" />
                               <span className="text-sm font-bold text-gray-700">{opt.name}</span>
                             </label>
                           ))}
@@ -664,7 +825,6 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              {/* CORE CONTENT */}
               <section className="space-y-8">
                  <h3 className="text-xl font-black text-gray-900 border-b pb-2">Basic Info</h3>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
@@ -675,12 +835,16 @@ export default function AdminDashboard() {
                     </div>
                     <div className="space-y-4">
                       <input type="text" value={editingData.title || ''} onChange={(e) => setEditingData({...editingData, title: e.target.value})} className="w-full p-4 border rounded-2xl font-black text-lg" placeholder="Shop Title" />
-                      <input type="number" value={editingData.restaurant_price || ''} onChange={(e) => setEditingData({...editingData, restaurant_price: parseInt(e.target.value)})} className="w-full p-4 border rounded-2xl font-bold" placeholder="Price (e.g. 1500)" />
+                      <input type="number" value={editingData.restaurant_price || ''} onChange={(e) => setEditingData({...editingData, restaurant_price: parseInt(e.target.value)})} className="w-full p-4 border rounded-2xl font-bold" placeholder="Price" />
                       <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData({...editingData, address: e.target.value})} className="w-full p-4 border rounded-2xl font-bold" placeholder="Address" />
+                      <div className="flex gap-2">
+                        <input type="text" disabled value={`Lat: ${editingData.lat || 'None'}`} className="flex-1 p-2 bg-gray-50 border rounded-lg text-[10px] font-mono" />
+                        <input type="text" disabled value={`Lng: ${editingData.lng || 'None'}`} className="flex-1 p-2 bg-gray-50 border rounded-lg text-[10px] font-mono" />
+                      </div>
                     </div>
                  </div>
-                 <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData({...editingData, description: e.target.value})} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed" placeholder="Detailed Description..." />
-                 <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData({...editingData, full_menu: e.target.value})} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium" placeholder="Full Menu Details..." />
+                 <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData({...editingData, description: e.target.value})} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed" placeholder="Description..." />
+                 <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData({...editingData, full_menu: e.target.value})} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium" placeholder="Menu..." />
               </section>
 
               <button onClick={saveEdits} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-black py-6 rounded-[32px] shadow-2xl hover:shadow-orange-500/20 transition transform hover:-translate-y-1 text-xl">

@@ -156,6 +156,9 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               // LOOKUP: Find the category rules from our new allCategories list
               const categoryData = allCategories.find(c => c.name === catName);
               
+              // Check if it's a constant/permanent event
+              const isConstant = categoryData?.is_constant === true;
+
               // Resolve Global Description from the Categories Hub
               const globalDesc = categoryData ? (
                 currentLang === 'ja' 
@@ -170,25 +173,42 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                 : (restaurant.translations?.[currentLang]?.category_collabs?.[catName] || baseCollab);
 
               return (
-                <div key={catName} className="bg-gradient-to-br from-purple-50 to-pink-50 p-6 md:p-8 rounded-3xl border border-purple-100 shadow-sm relative overflow-hidden">
-                  <div className="absolute top-0 right-0 w-32 h-32 bg-purple-500 opacity-5 rounded-bl-full -z-0"></div>
+                <div 
+                  key={catName} 
+                  className={`p-6 md:p-8 rounded-3xl shadow-sm relative overflow-hidden border ${
+                    isConstant 
+                      ? 'bg-slate-50 border-slate-200' 
+                      : 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-100'
+                  }`}
+                >
+                  <div className={`absolute top-0 right-0 w-32 h-32 opacity-5 rounded-bl-full -z-0 ${
+                    isConstant ? 'bg-slate-900' : 'bg-purple-500'
+                  }`}></div>
                   
-                  <h3 className="text-xl font-black text-purple-900 mb-3 relative z-10">
+                  <h3 className={`text-xl font-black mb-3 relative z-10 ${
+                    isConstant ? 'text-slate-900' : 'text-purple-900'
+                  }`}>
                     {t(`tag_${catName}`, catName)}
                   </h3>
                   
                   {globalDesc && (
-                    <p className="text-purple-800/80 text-sm font-medium mb-6 leading-relaxed relative z-10 whitespace-pre-wrap pb-4 border-b border-purple-200/50">
+                    <p className={`text-sm font-medium mb-6 leading-relaxed relative z-10 whitespace-pre-wrap pb-4 border-b ${
+                      isConstant ? 'text-slate-700 border-slate-200' : 'text-purple-800/80 border-purple-200/50'
+                    }`}>
                       {globalDesc}
                     </p>
                   )}
 
                   {localizedCollab && (
                     <div className="relative z-10">
-                      <h4 className="text-xs font-black text-purple-700 uppercase tracking-wider mb-2">
+                      <h4 className={`text-xs font-black uppercase tracking-wider mb-2 ${
+                        isConstant ? 'text-slate-500' : 'text-purple-700'
+                      }`}>
                         {t('label_shop_collab', '店舗限定コラボ内容')}
                       </h4>
-                      <p className="text-gray-900 font-bold whitespace-pre-wrap leading-relaxed bg-white/60 p-4 rounded-xl border border-purple-100">
+                      <p className={`font-bold whitespace-pre-wrap leading-relaxed p-4 rounded-xl border ${
+                        isConstant ? 'text-slate-900 bg-white border-slate-200' : 'text-gray-900 bg-white/60 border-purple-100'
+                      }`}>
                         {localizedCollab}
                       </p>
                     </div>
