@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
@@ -12,6 +12,30 @@ export default function RegisterRestaurant() {
   const [hoursSource, setHoursSource] = useState('google');
   const [takeout, setTakeout] = useState(false);
   const [photoMethod, setPhotoMethod] = useState('email');
+  
+  // Events Data State
+  const [activeEvents, setActiveEvents] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchEvents = async () => {
+      const { data } = await supabase.from('custom_categories').select('*').order('created_at');
+      if (data) {
+        const today = new Date().toISOString().split('T')[0]; 
+        const validEvents = data.filter(e => {
+          if (e.is_constant) return true;
+          const start = e.start_date ? e.start_date.split('T')[0] : null;
+          const end = e.end_date ? e.end_date.split('T')[0] : null;
+          if (!start && !end) return true;
+          if (start && end) return today >= start && today <= end;
+          if (start) return today >= start;
+          if (end) return today <= end;
+          return true;
+        });
+        setActiveEvents(validEvents);
+      }
+    };
+    fetchEvents();
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -20,12 +44,17 @@ export default function RegisterRestaurant() {
     
     const formData = new FormData(e.currentTarget);
     
-    // ✅ Capture manual hours dynamically into a structured JSON object
-    const structuredHours: Record<string, string> = {};
+    // ✅ Formats hours into a clean multi-line string instead of JSON
+    let finalHours = '';
     if (hoursSource === 'manual') {
-      DAYS.forEach(day => {
-        structuredHours[day] = (formData.get(`hours_${day}`) as string) || '';
-      });
+      finalHours = DAYS.map(day => {
+        const val = formData.get(`hours_${day}`) as string;
+        return val ? `${day}: ${val}` : `${day}: 定休/未設定`;
+      }).join('\n');
+    } else if (hoursSource === 'google') {
+      finalHours = 'Googleマップに準ずる';
+    } else if (hoursSource === 'website') {
+      finalHours = '店舗HPに準ずる';
     }
 
     const newRestaurant = {
@@ -50,11 +79,11 @@ export default function RegisterRestaurant() {
       photo_method: photoMethod,
       admin_notes: formData.get('questions'),
       
-      // ✅ New Tracking Payload
+      other_options: formData.getAll('other_options'), // ✅ Captures selected events
       hours_source: hoursSource,
-      operating_hours: hoursSource === 'manual' ? structuredHours : null,
-      lat: null, // Ready for geocoding Phase
-      lng: null, // Ready for geocoding Phase
+      operating_hours: finalHours, // ✅ Saves as clean text
+      lat: null,
+      lng: null,
     };
 
     const { error } = await supabase.from('restaurants').insert([newRestaurant]);
@@ -65,7 +94,7 @@ export default function RegisterRestaurant() {
     } else {
       setMessage('情報の送信が完了しました！ご協力誠にありがとうございます。');
       (e.target as HTMLFormElement).reset();
-      setHoursSource('google'); // Reset states
+      setHoursSource('google');
       setTakeout(false);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -130,6 +159,51 @@ export default function RegisterRestaurant() {
           </div>
         </section>
 
+        {/* ✅ NEW SECTION: Events & Campaigns */}
+        {activeEvents.length > 0 && (
+          <section className="p-8 md:p-10 bg-purple-50 border border-purple-100 rounded-[32px] space-y-6">
+            <div className="mb-2">
+              <h2 className="text-2xl font-black text-purple-900 mb-2 flex items-center gap-2">
+                <span>🎉</span> 参加イベント・キャンペーン
+              </h2>
+              <p className="text-sm font-medium text-purple-800/80">
+                イベントに参加している場合はチェックを入れてください。
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-3">
+              {activeEvents.map(event => (
+                <label 
+                  key={event.id} 
+                  className="flex items-start cursor-pointer p-4 rounded-2xl border border-purple-200 bg-white hover:bg-purple-50 hover:border-purple-300 transition-all duration-200"
+                >
+                  <div className="flex items-center h-6 mt-1">
+                    <input 
+                      type="checkbox" 
+                      name="other_options"
+                      value={event.name}
+                      className="w-5 h-5 accent-purple-600 rounded" 
+                    />
+                  </div>
+                  <div className="ml-4 flex-1">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-xs font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${
+                        event.is_constant ? 'bg-slate-200 text-slate-800' : 'bg-purple-200 text-purple-900'
+                      }`}>
+                        {event.is_constant ? '📌 常設 / Permanent' : '⏰ 期間限定 / Seasonal'}
+                      </span>
+                    </div>
+                    <span className="font-black text-gray-900 text-lg">{event.name}</span>
+                    {event.description && (
+                      <p className="text-sm text-gray-600 mt-1 line-clamp-2">{event.description}</p>
+                    )}
+                  </div>
+                </label>
+              ))}
+            </div>
+          </section>
+        )}
+
         {/* SECTION 2: Hours */}
         <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
           <h2 className="text-2xl font-black text-gray-900 mb-6 border-b pb-4">2. 営業時間</h2>
@@ -152,7 +226,7 @@ export default function RegisterRestaurant() {
 
           {hoursSource === 'manual' && (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-2xl border border-gray-200">
-              <p className="md:col-span-2 text-sm text-gray-500 mb-2 font-medium">※ 定休日の場合は「定休」、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。</p>
+              <p className="md:col-span-2 text-sm text-gray-500 mb-2 font-medium">※ 定休日の場合は未記入、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。</p>
               {DAYS.map((day) => (
                 <div key={day} className="flex items-center bg-white p-3 rounded-xl border border-gray-200 shadow-sm">
                   <span className="w-24 font-bold text-gray-700">{day}</span>
@@ -225,7 +299,7 @@ export default function RegisterRestaurant() {
               <input name="total_seats" type="text" className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none" placeholder="例：30席" />
             </div>
             <div>
-              <label className="block text-sm font-bold text-gray-700 mb-2">平均滞在時間</label>
+              <label className="block text-sm font-bold text-gray-700 mb-2">平均滞接時間</label>
               <select name="avg_stay_time" className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-gray-700 cursor-pointer">
                 <option value="~15分">〜15分</option>
                 <option value="15分~30分">15分〜30分</option>
@@ -252,7 +326,7 @@ export default function RegisterRestaurant() {
                   <div className="flex gap-4">
                     {['店頭注文', '電話注文', 'オンライン(Uber等)'].map((method) => (
                        <label key={method} className="flex items-center">
-                         <input type="checkbox" name="takeout_methods" value={method} className="h-5 w-5 text-orange-600 rounded border-gray-300" />
+                         <input type="checkbox" name="payment" value={method} className="h-5 w-5 text-orange-600 rounded border-gray-300" />
                          <span className="ml-2 text-sm font-bold text-gray-700">{method}</span>
                        </label>
                     ))}

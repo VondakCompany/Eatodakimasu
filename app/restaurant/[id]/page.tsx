@@ -59,7 +59,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const closeLightbox = () => setLightboxOpen(false);
 
   const nextImage = (e: React.MouseEvent) => {
-    e.stopPropagation(); // Prevent closing when clicking arrows
+    e.stopPropagation();
     setLightboxIndex((prev) => (prev + 1) % restaurant.image_urls.length);
   };
 
@@ -67,6 +67,31 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
     e.stopPropagation();
     setLightboxIndex((prev) => (prev - 1 + restaurant.image_urls.length) % restaurant.image_urls.length);
   };
+
+  // ✅ HELPER: Converts legacy JSON strings into clean text
+  const formatOperatingHours = (hours: any) => {
+    if (!hours) return '';
+    if (typeof hours === 'string') {
+      try {
+        const parsed = JSON.parse(hours);
+        return Object.entries(parsed)
+          .filter(([_, v]) => v) // Remove empty days
+          .map(([k, v]) => `${k}: ${v}`)
+          .join('\n');
+      } catch {
+        return hours; // Already clean text
+      }
+    }
+    if (typeof hours === 'object') {
+      return Object.entries(hours)
+        .filter(([_, v]) => v)
+        .map(([k, v]) => `${k}: ${v}`)
+        .join('\n');
+    }
+    return String(hours);
+  };
+
+  const displayHours = formatOperatingHours(restaurant.operating_hours);
 
   // DYNAMIC TRANSLATION RESOLVERS
   const displayTitle = currentLang === 'ja' 
@@ -93,7 +118,6 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
     ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(restaurant.address)}`
     : null;
 
-  // SHARE HANDLER
   const handleShare = async () => {
     const shareData = {
       title: displayTitle,
@@ -119,7 +143,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
       {lightboxOpen && restaurant.image_urls && (
         <div 
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-sm"
-          onClick={closeLightbox} // Clicking the background closes it
+          onClick={closeLightbox}
         >
           <button 
             className="absolute top-6 right-8 text-white/70 hover:text-white text-4xl font-light transition-colors z-50"
@@ -142,9 +166,8 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               src={restaurant.image_urls[lightboxIndex]} 
               alt={`${displayTitle} gallery full`} 
               className="max-w-full max-h-[85vh] object-contain shadow-2xl rounded-sm pointer-events-auto"
-              onClick={(e) => e.stopPropagation()} // Prevent clicking the image from closing
+              onClick={(e) => e.stopPropagation()} 
             />
-            {/* Image Counter */}
             <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 text-white/60 text-sm tracking-widest font-mono">
               {lightboxIndex + 1} / {restaurant.image_urls.length}
             </div>
@@ -172,7 +195,6 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
             className="object-cover w-full h-full opacity-60 absolute inset-0 z-0" 
           />
           
-          {/* Floating Action Buttons */}
           <div className="absolute top-6 left-6 right-6 flex justify-between z-10">
             <Link href="/" className="bg-white/90 backdrop-blur text-gray-900 px-4 py-2 rounded-xl font-bold text-sm hover:bg-white transition shadow-sm">
               {t('btn_back_search', '← 検索に戻る')}
@@ -250,7 +272,6 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center">
                 <span className="text-3xl mr-3">📸</span> {t('label_gallery', 'ギャラリー')}
               </h2>
-              {/* Changed to a responsive grid of smaller, clickable thumbnails */}
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
                 {restaurant.image_urls.map((url: string, idx: number) => (
                   <button 
@@ -343,15 +364,11 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
             <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-5">{t('label_info', '店舗情報')}</h3>
               <ul className="space-y-4 text-gray-800 font-medium">
-                {/* OPERATING HOURS UI */}
-                {restaurant.operating_hours && (
+                {/* ✅ CLEAN OPERATING HOURS */}
+                {displayHours && (
                   <li className="flex items-start">
                     <span className="w-6 text-xl mr-3 text-center">🕒</span> 
-                    <span className="whitespace-pre-wrap leading-relaxed">{
-                      typeof restaurant.operating_hours === 'string' 
-                        ? restaurant.operating_hours 
-                        : JSON.stringify(restaurant.operating_hours)
-                    }</span>
+                    <span className="whitespace-pre-wrap leading-relaxed">{displayHours}</span>
                   </li>
                 )}
                 {restaurant.restaurant_area && restaurant.restaurant_area.length > 0 && (

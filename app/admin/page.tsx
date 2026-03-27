@@ -1,19 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
 export default function AdminDashboard() {
-  // --- AUTH STATE ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [passwordInput, setPasswordInput] = useState('');
   const ADMIN_PASSWORD = 'waseda2026';
 
-  // --- NAVIGATION & LOADING ---
   const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'categories' | 'translations'>('directory');
   const [loading, setLoading] = useState(true);
+  const [searchQuery, setSearchQuery] = useState(''); 
   
-  // --- DATABASE DATA ---
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
   const [liveRestaurants, setLiveRestaurants] = useState<any[]>([]);
   const [customCategories, setCustomCategories] = useState<any[]>([]);
@@ -21,11 +19,9 @@ export default function AdminDashboard() {
   const [appLanguages, setAppLanguages] = useState<any[]>([]);
   const [uiTranslations, setUiTranslations] = useState<any[]>([]);
 
-  // --- MASTER DATA HUB STATES ---
   const [newFilterName, setNewFilterName] = useState('');
   const [newFilterType, setNewFilterType] = useState<'cuisine' | 'restriction' | 'payment' | 'area'>('cuisine');
 
-  // --- TRANSLATION ENGINE STATES ---
   const [transSubTab, setTransSubTab] = useState<'global' | 'tags' | 'restaurants'>('global');
   const [selectedTransRestId, setSelectedTransRestId] = useState<string>('');
   const [selectedTransLang, setSelectedTransLang] = useState<string>('');
@@ -35,21 +31,25 @@ export default function AdminDashboard() {
   const [newLangName, setNewLangName] = useState('');
   const [newTransKey, setNewTransKey] = useState('');
 
-  // --- EDIT & EVENT STATES ---
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryStartDate, setNewCategoryStartDate] = useState('');
   const [newCategoryEndDate, setNewCategoryEndDate] = useState('');
   const [newCategoryIsConstant, setNewCategoryIsConstant] = useState(false);
+  
   const [editingData, setEditingData] = useState<any | null>(null);
+  const editingDataRef = useRef<any>(null); 
+  
   const [uploadingImage, setUploadingImage] = useState(false);
   const [managingCategory, setManagingCategory] = useState<string | null>(null);
   const [categoryParticipants, setCategoryParticipants] = useState<string[]>([]);
   const [savingParticipants, setSavingParticipants] = useState(false);
 
-  // --- BATCH PROCESSING STATE ---
   const [batchStatus, setBatchStatus] = useState<{ total: number, current: number, isRunning: boolean } | null>(null);
 
-  // --- INITIAL FETCH ---
+  useEffect(() => {
+    editingDataRef.current = editingData;
+  }, [editingData]);
+
   useEffect(() => {
     if (isAuthenticated) fetchAllData();
   }, [isAuthenticated]);
@@ -144,7 +144,6 @@ export default function AdminDashboard() {
     }
   }, [selectedTransRestId, selectedTransLang, liveRestaurants, pendingSubmissions]);
 
-  // --- LOGIC: TRANSLATIONS ---
   const addLanguage = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newLangCode.trim() || !newLangName.trim()) return;
@@ -187,7 +186,6 @@ export default function AdminDashboard() {
     if (!error) { alert('Saved!'); fetchAllData(); }
   };
 
-  // --- LOGIC: MASTER FILTERS ---
   const addMasterFilter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFilterName.trim()) return;
@@ -240,7 +238,6 @@ export default function AdminDashboard() {
     }
   };
 
-  // --- LOGIC: EVENT HUB (CATEGORIES) ---
   const addCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newCategoryName.trim()) return;
@@ -331,49 +328,62 @@ export default function AdminDashboard() {
     }
   };
 
-  // ✅ SAFELY HANDLE MAIN IMAGE UPLOAD
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingImage(true);
-    const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, '_')}`;
-    const { data, error } = await supabase.storage.from('restaurant-images').upload(fileName, file);
     
-    if (error) {
-      alert(`Cover Image Upload Error:\n${error.message}`);
-    } else if (data) {
+    try {
+      const fileName = `cover-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, '_')}`;
+      const { data, error } = await supabase.storage.from('restaurant-images').upload(fileName, file);
+      
+      if (error) throw error;
+      
       const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
-      setEditingData((prev: any) => ({ ...prev, image_url: publicData.publicUrl }));
+      setEditingData((prev: any) => {
+        if (!prev) return prev;
+        return { ...prev, image_url: publicData.publicUrl };
+      });
+    } catch (error: any) {
+      alert(`Cover Image Upload Error:\n${error.message}`);
+    } finally {
+      setUploadingImage(false);
+      e.target.value = '';
     }
-    setUploadingImage(false);
   };
 
-  // ✅ SAFELY HANDLE GALLERY UPLOAD
   const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
-    if (!files) return;
+    if (!files || files.length === 0) return;
+    
     setUploadingImage(true);
     const newUrls: string[] = [];
     
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      const fileName = `gallery-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, '_')}`;
-      
-      const { data, error } = await supabase.storage.from('restaurant-images').upload(fileName, file);
-      
-      if (error) {
-        alert(`Storage Error on ${file.name}:\n${error.message}`);
-      } else if (data) {
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileName = `gallery-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, '_')}`;
+        
+        const { data, error } = await supabase.storage.from('restaurant-images').upload(fileName, file);
+        if (error) throw error;
+        
         const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
         newUrls.push(publicData.publicUrl);
       }
+      
+      if (newUrls.length > 0) {
+        setEditingData((prev: any) => {
+          if (!prev) return prev;
+          const currentUrls = prev.image_urls || [];
+          return { ...prev, image_urls: [...currentUrls, ...newUrls] };
+        });
+      }
+    } catch (error: any) {
+      alert(`Storage Error:\n${error.message}`);
+    } finally {
+      setUploadingImage(false);
+      e.target.value = ''; 
     }
-    
-    setEditingData((prev: any) => ({ 
-      ...prev, 
-      image_urls: [...(prev?.image_urls || []), ...newUrls] 
-    }));
-    setUploadingImage(false);
   };
 
   const removeGalleryImage = (index: number) => {
@@ -387,6 +397,7 @@ export default function AdminDashboard() {
 
   const toggleEditArray = (field: string, value: string) => {
     setEditingData((prev: any) => {
+      if (!prev) return prev;
       const currentArray = prev[field] || [];
       if (currentArray.includes(value)) {
         return { ...prev, [field]: currentArray.filter((v: string) => v !== value) };
@@ -395,26 +406,34 @@ export default function AdminDashboard() {
     });
   };
 
-  // ✅ DIAGNOSTIC SAVE FUNCTION
-  const saveEdits = async () => {
-    if (!editingData || !editingData.id) {
-      alert("Error: Lost Restaurant ID.");
+  // ✅ HELPER: Pre-formats legacy JSON strings when loading a restaurant into the Edit Modal
+  const handleEditClick = (restaurant: any) => {
+    let formattedHours = restaurant.operating_hours;
+    if (formattedHours) {
+      if (typeof formattedHours === 'string') {
+        try {
+          const parsed = JSON.parse(formattedHours);
+          formattedHours = Object.entries(parsed).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
+        } catch { /* Already text */ }
+      } else if (typeof formattedHours === 'object') {
+        formattedHours = Object.entries(formattedHours).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
+      }
+    }
+    setEditingData({ ...restaurant, operating_hours: formattedHours });
+  };
+
+  const saveEdits = async (currentData: any) => {
+    if (!currentData || !currentData.id) {
+      alert("Error: Lost Restaurant ID during session. Please refresh the page.");
       return;
     }
+    
     setLoading(true);
     
-    // Strip restricted fields
-    const { id, created_at, ...updates } = editingData;
-
-    // DIAGNOSTIC 1: Check what React is trying to send
-    console.log("🚀 SENDING PAYLOAD:", updates);
-    if (!updates.image_urls || updates.image_urls.length === 0) {
-      alert("⚠️ React Alert: The image_urls array is empty BEFORE sending to Supabase. The images didn't stick to the state.");
-    }
+    const { id, created_at, ...updates } = currentData;
 
     const allRests = [...liveRestaurants, ...pendingSubmissions];
     const original = allRests.find(r => r.id === id);
-
     if (original && original.address !== updates.address && updates.address) {
       const { lat, lng } = await geocodeAddress(updates.address);
       if (lat && lng) {
@@ -422,22 +441,18 @@ export default function AdminDashboard() {
         updates.lng = lng;
       }
     }
-
-    // Force Supabase to return the 'image_urls' column so we can prove it saved
-    const { data, error } = await supabase
+    
+    const { error } = await supabase
       .from('restaurants')
       .update(updates)
-      .eq('id', id)
-      .select('image_urls');
+      .eq('id', id);
     
     setLoading(false);
 
     if (error) { 
-      alert(`❌ Database Rejection:\n${error.message}`);
-      console.error("Save Error:", error);
+      alert(`Database Error:\n${error.message}`);
     } else { 
-      // DIAGNOSTIC 2: See exactly what the database accepted
-      alert(`✅ Database Save Successful!\n\nSupabase returned this for the gallery:\n${JSON.stringify(data?.[0]?.image_urls, null, 2)}`);
+      alert(`✅ Saved Successfully!`);
       setEditingData(null); 
       fetchAllData(); 
     }
@@ -459,10 +474,14 @@ export default function AdminDashboard() {
   const allRestaurantsList = [...liveRestaurants, ...pendingSubmissions];
   const selectedTransRestData = allRestaurantsList.find(r => r.id === selectedTransRestId);
 
+  const filteredRestaurants = (activeTab === 'directory' ? liveRestaurants : pendingSubmissions).filter(rest => {
+    if (!searchQuery.trim()) return true;
+    return rest.title?.toLowerCase().includes(searchQuery.toLowerCase());
+  });
+
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 relative min-h-screen pb-20">
       
-      {/* HEADER */}
       <div className="flex justify-between items-end mb-8 border-b border-gray-200 pb-4">
         <div>
           <h1 className="text-4xl font-black text-gray-900 tracking-tight">Admin CMS</h1>
@@ -479,10 +498,9 @@ export default function AdminDashboard() {
         <button onClick={() => setIsAuthenticated(false)} className="text-sm font-bold text-gray-400 hover:text-red-500 transition">Logout</button>
       </div>
 
-      {/* TABS NAVIGATION */}
       <div className="flex flex-wrap gap-3 mb-10">
-        <button onClick={() => setActiveTab('directory')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'directory' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Directory ({liveRestaurants.length})</button>
-        <button onClick={() => setActiveTab('pending')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'pending' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Pending ({pendingSubmissions.length})</button>
+        <button onClick={() => { setActiveTab('directory'); setSearchQuery(''); }} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'directory' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Directory ({liveRestaurants.length})</button>
+        <button onClick={() => { setActiveTab('pending'); setSearchQuery(''); }} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'pending' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Pending ({pendingSubmissions.length})</button>
         <button onClick={() => setActiveTab('categories')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'categories' ? 'bg-purple-600 text-white shadow-lg' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}>⚙️ Category Hub</button>
         <button onClick={() => setActiveTab('translations')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'translations' ? 'bg-blue-600 text-white shadow-lg' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>🌐 Translations</button>
       </div>
@@ -491,7 +509,6 @@ export default function AdminDashboard() {
          <div className="text-center py-20 animate-pulse text-gray-400 font-black text-xl tracking-widest">CONNECTING TO DATABASE...</div>
       ) : (
         <>
-          {/* TAB: TRANSLATIONS */}
           {activeTab === 'translations' && (
             <div className="space-y-10">
               <div className="flex gap-4 border-b border-gray-100 pb-2">
@@ -637,7 +654,6 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB: CATEGORY & MASTER HUB */}
           {activeTab === 'categories' && (
             <div className="max-w-6xl space-y-12 pb-20">
               <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
@@ -732,7 +748,6 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
-              {/* MASTER TAGS SECTION */}
               <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
                 <h2 className="text-3xl font-black mb-2">🏷️ Master Filter Tags</h2>
                 <form onSubmit={addMasterFilter} className="flex flex-wrap gap-4 mb-10 p-6 bg-gray-50 rounded-3xl border border-gray-100">
@@ -767,38 +782,63 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {/* TAB: DIRECTORY & PENDING GRID */}
           {(activeTab === 'directory' || activeTab === 'pending') && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
-              {(activeTab === 'directory' ? liveRestaurants : pendingSubmissions).map(restaurant => (
-                <div key={restaurant.id} className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-200 flex flex-col hover:shadow-xl transition-all duration-300">
-                  {restaurant.image_url ? (
-                    <img src={restaurant.image_url} alt="Cover" className="w-full h-40 object-cover rounded-2xl mb-5 bg-gray-50" />
-                  ) : (
-                    <div className="w-full h-40 bg-gray-100 rounded-2xl mb-5 flex items-center justify-center text-gray-300 text-xs font-black">NO PHOTO</div>
+            <div>
+              <div className="mb-8">
+                <div className="relative shadow-sm rounded-3xl bg-white border border-gray-200 max-w-2xl">
+                  <span className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 text-xl">🔍</span>
+                  <input
+                    type="text"
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    placeholder="Search by restaurant name..."
+                    className="w-full pl-14 pr-12 py-4 bg-transparent rounded-3xl outline-none font-bold text-gray-800 text-lg focus:ring-2 focus:ring-orange-500/20"
+                  />
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center transition"
+                    >
+                      ✕
+                    </button>
                   )}
-                  <div className="flex justify-between items-start mb-1">
-                    <h3 className="text-xl font-black text-gray-900 truncate flex-1">{restaurant.title}</h3>
-                    {restaurant.lat && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded font-black">📍 GEO</span>}
-                  </div>
-                  <p className="text-xs text-orange-500 font-bold mb-6">¥{restaurant.restaurant_price || '---'}</p>
-                  <div className="flex gap-2 mt-auto">
-                    <button onClick={() => setEditingData(restaurant)} className="flex-1 bg-gray-900 text-white text-xs font-black py-3 rounded-xl hover:bg-black transition">✏️ Edit</button>
-                    {activeTab === 'directory' ? (
-                      <button onClick={() => updateStatus(restaurant, 'pending')} className="flex-1 bg-gray-100 text-gray-600 text-xs font-black py-3 rounded-xl hover:bg-gray-200 transition">Unpublish</button>
-                    ) : (
-                      <button onClick={() => updateStatus(restaurant, 'approved')} className="flex-1 bg-green-600 text-white text-xs font-black py-3 rounded-xl hover:bg-green-700 transition">Approve</button>
-                    )}
-                    <button onClick={() => deleteRestaurant(restaurant.id, restaurant.title)} className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition">✕</button>
-                  </div>
                 </div>
-              ))}
+              </div>
+
+              {filteredRestaurants.length === 0 ? (
+                <div className="text-center py-20 text-gray-400 font-bold">No restaurants found matching "{searchQuery}"</div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+                  {filteredRestaurants.map(restaurant => (
+                    <div key={restaurant.id} className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-200 flex flex-col hover:shadow-xl transition-all duration-300">
+                      {restaurant.image_url ? (
+                        <img src={restaurant.image_url} alt="Cover" className="w-full h-40 object-cover rounded-2xl mb-5 bg-gray-50" />
+                      ) : (
+                        <div className="w-full h-40 bg-gray-100 rounded-2xl mb-5 flex items-center justify-center text-gray-300 text-xs font-black">NO PHOTO</div>
+                      )}
+                      <div className="flex justify-between items-start mb-1">
+                        <h3 className="text-xl font-black text-gray-900 truncate flex-1">{restaurant.title}</h3>
+                        {restaurant.lat && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded font-black">📍 GEO</span>}
+                      </div>
+                      <p className="text-xs text-orange-500 font-bold mb-6">¥{restaurant.restaurant_price || '---'}</p>
+                      <div className="flex gap-2 mt-auto">
+                        <button onClick={() => handleEditClick(restaurant)} className="flex-1 bg-gray-900 text-white text-xs font-black py-3 rounded-xl hover:bg-black transition">✏️ Edit</button>
+                        {activeTab === 'directory' ? (
+                          <button onClick={() => updateStatus(restaurant, 'pending')} className="flex-1 bg-gray-100 text-gray-600 text-xs font-black py-3 rounded-xl hover:bg-gray-200 transition">Unpublish</button>
+                        ) : (
+                          <button onClick={() => updateStatus(restaurant, 'approved')} className="flex-1 bg-green-600 text-white text-xs font-black py-3 rounded-xl hover:bg-green-700 transition">Approve</button>
+                        )}
+                        <button onClick={() => deleteRestaurant(restaurant.id, restaurant.title)} className="p-3 bg-red-50 text-red-500 rounded-xl hover:bg-red-100 transition">✕</button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
         </>
       )}
 
-      {/* MODAL: BULK MANAGE CATEGORY PARTICIPANTS */}
       {managingCategory && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col relative overflow-hidden">
@@ -832,16 +872,17 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* MODAL: RESTAURANT EDITOR */}
       {editingData && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col relative">
-            <div className="sticky top-0 bg-white/90 backdrop-blur p-8 border-b border-gray-100 z-10 flex justify-between items-center">
-              <div>
-                <h2 className="text-3xl font-black text-gray-900">Edit Details</h2>
-                <p className="text-orange-500 font-bold">{editingData.title}</p>
+            <div className="sticky top-0 bg-white/90 backdrop-blur p-8 border-b border-gray-100 z-10 flex flex-col gap-4">
+              <div className="flex justify-between items-center">
+                <div>
+                  <h2 className="text-3xl font-black text-gray-900">Edit Details</h2>
+                  <p className="text-orange-500 font-bold">{editingData.title}</p>
+                </div>
+                <button onClick={() => setEditingData(null)} className="text-gray-400 hover:text-red-500 text-3xl font-black bg-gray-100 w-14 h-14 rounded-full flex items-center justify-center">✕</button>
               </div>
-              <button onClick={() => setEditingData(null)} className="text-gray-400 hover:text-red-500 text-3xl font-black bg-gray-100 w-14 h-14 rounded-full flex items-center justify-center">✕</button>
             </div>
 
             <div className="p-10 space-y-16">
@@ -890,7 +931,6 @@ export default function AdminDashboard() {
               <section className="space-y-8">
                  <h3 className="text-xl font-black text-gray-900 border-b pb-2">Basic Info</h3>
                  
-                 {/* GALLERY UPLOAD AREA */}
                  <div className="bg-gray-50 p-6 rounded-3xl border border-gray-200">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Gallery Images (Multiple)</label>
                     <input type="file" multiple accept="image/*" onChange={handleGalleryUpload} className="text-sm font-bold mb-6 block w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100" />
@@ -925,17 +965,16 @@ export default function AdminDashboard() {
                     </div>
                  </div>
 
-                 {/* OPERATING HOURS */}
                  <div>
                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Operating Hours</label>
-                   <textarea rows={3} value={editingData.operating_hours || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm font-medium" placeholder="Mon-Fri: 11:00-22:00&#10;Sat-Sun: 10:00-23:00" />
+                   <textarea rows={6} value={editingData.operating_hours || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm font-medium" placeholder="Mon-Fri: 11:00-22:00&#10;Sat-Sun: 10:00-23:00" />
                  </div>
 
                  <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, description: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm" placeholder="Description..." />
                  <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, full_menu: e.target.value}))} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium shadow-inner" placeholder="Menu..." />
               </section>
 
-              <button onClick={saveEdits} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-black py-6 rounded-[32px] shadow-2xl hover:shadow-orange-500/20 transition transform hover:-translate-y-1 text-xl">
+              <button onClick={() => saveEdits(editingData)} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-black py-6 rounded-[32px] shadow-2xl hover:shadow-orange-500/20 transition transform hover:-translate-y-1 text-xl">
                 SAVE ALL CHANGES
               </button>
             </div>
