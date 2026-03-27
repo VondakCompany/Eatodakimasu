@@ -39,7 +39,7 @@ export default function AdminDashboard() {
   const [newCategoryName, setNewCategoryName] = useState('');
   const [newCategoryStartDate, setNewCategoryStartDate] = useState('');
   const [newCategoryEndDate, setNewCategoryEndDate] = useState('');
-  const [newCategoryIsConstant, setNewCategoryIsConstant] = useState(false); // ✅ Added constant state
+  const [newCategoryIsConstant, setNewCategoryIsConstant] = useState(false);
   const [editingData, setEditingData] = useState<any | null>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
   const [managingCategory, setManagingCategory] = useState<string | null>(null);
@@ -74,7 +74,6 @@ export default function AdminDashboard() {
     setLoading(false);
   };
 
-  // --- GOOGLE MAPS GEOCODING HELPER ---
   const geocodeAddress = async (address: string) => {
     if (!address) return { lat: null, lng: null };
     try {
@@ -97,7 +96,6 @@ export default function AdminDashboard() {
     return { lat: null, lng: null };
   };
 
-  // --- BATCH UPDATE COORDINATES ---
   const batchUpdateCoordinates = async () => {
     const allRests = [...liveRestaurants, ...pendingSubmissions];
     const targets = allRests.filter(r => !r.lat || !r.lng);
@@ -121,7 +119,6 @@ export default function AdminDashboard() {
           await supabase.from('restaurants').update({ lat, lng }).eq('id', rest.id);
         }
       }
-      // Small delay to avoid API rate limiting
       await new Promise(r => setTimeout(r, 200)); 
     }
 
@@ -130,7 +127,6 @@ export default function AdminDashboard() {
     fetchAllData();
   };
 
-  // --- TRANSLATION EFFECTS ---
   useEffect(() => {
     if (selectedTransRestId && selectedTransLang) {
       const allRests = [...liveRestaurants, ...pendingSubmissions];
@@ -252,7 +248,7 @@ export default function AdminDashboard() {
     const payload: any = { 
       name: newCategoryName.trim(),
       show_badge: false,
-      is_constant: newCategoryIsConstant // ✅ Added is_constant payload
+      is_constant: newCategoryIsConstant
     };
     if (newCategoryStartDate && !newCategoryIsConstant) payload.start_date = new Date(newCategoryStartDate).toISOString();
     if (newCategoryEndDate && !newCategoryIsConstant) payload.end_date = new Date(newCategoryEndDate).toISOString();
@@ -263,7 +259,7 @@ export default function AdminDashboard() {
       setNewCategoryName(''); 
       setNewCategoryStartDate('');
       setNewCategoryEndDate('');
-      setNewCategoryIsConstant(false); // ✅ Resetting constant state
+      setNewCategoryIsConstant(false);
       fetchAllData(); 
     }
   };
@@ -309,14 +305,12 @@ export default function AdminDashboard() {
     fetchAllData();
   };
 
-  // --- LOGIC: RESTAURANT ACTIONS ---
   const updateStatus = async (restaurant: any, newStatus: string) => {
     if (confirm(`Change status of "${restaurant.title}" to ${newStatus}?`)) {
       setLoading(true);
       
       let updates: any = { status: newStatus };
 
-      // AUTO-GEOCODE IF APPROVING AND MISSING COORDS
       if (newStatus === 'approved' && restaurant.address && !restaurant.lat) {
         const { lat, lng } = await geocodeAddress(restaurant.address);
         if (lat && lng) {
@@ -337,45 +331,116 @@ export default function AdminDashboard() {
     }
   };
 
+  // ✅ SAFELY HANDLE MAIN IMAGE UPLOAD
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     setUploadingImage(true);
-    const fileName = `${Date.now()}-${file.name}`;
+    const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, '_')}`;
     const { data, error } = await supabase.storage.from('restaurant-images').upload(fileName, file);
-    if (!error && data) {
+    
+    if (error) {
+      alert(`Cover Image Upload Error:\n${error.message}`);
+    } else if (data) {
       const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
-      setEditingData({ ...editingData, image_url: publicData.publicUrl });
+      setEditingData((prev: any) => ({ ...prev, image_url: publicData.publicUrl }));
     }
     setUploadingImage(false);
   };
 
-  const toggleEditArray = (field: string, value: string) => {
-    const currentArray = editingData[field] || [];
-    if (currentArray.includes(value)) setEditingData({ ...editingData, [field]: currentArray.filter((v: string) => v !== value) });
-    else setEditingData({ ...editingData, [field]: [...currentArray, value] });
+  // ✅ SAFELY HANDLE GALLERY UPLOAD
+  const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files) return;
+    setUploadingImage(true);
+    const newUrls: string[] = [];
+    
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileName = `gallery-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, '_')}`;
+      
+      const { data, error } = await supabase.storage.from('restaurant-images').upload(fileName, file);
+      
+      if (error) {
+        alert(`Storage Error on ${file.name}:\n${error.message}`);
+      } else if (data) {
+        const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
+        newUrls.push(publicData.publicUrl);
+      }
+    }
+    
+    setEditingData((prev: any) => ({ 
+      ...prev, 
+      image_urls: [...(prev?.image_urls || []), ...newUrls] 
+    }));
+    setUploadingImage(false);
   };
 
+  const removeGalleryImage = (index: number) => {
+    setEditingData((prev: any) => {
+      if (!prev?.image_urls) return prev;
+      const updated = [...prev.image_urls];
+      updated.splice(index, 1);
+      return { ...prev, image_urls: updated };
+    });
+  };
+
+  const toggleEditArray = (field: string, value: string) => {
+    setEditingData((prev: any) => {
+      const currentArray = prev[field] || [];
+      if (currentArray.includes(value)) {
+        return { ...prev, [field]: currentArray.filter((v: string) => v !== value) };
+      }
+      return { ...prev, [field]: [...currentArray, value] };
+    });
+  };
+
+  // ✅ DIAGNOSTIC SAVE FUNCTION
   const saveEdits = async () => {
-    if (!editingData) return;
+    if (!editingData || !editingData.id) {
+      alert("Error: Lost Restaurant ID.");
+      return;
+    }
     setLoading(true);
     
-    let updates = { ...editingData };
-    const allRests = [...liveRestaurants, ...pendingSubmissions];
-    const original = allRests.find(r => r.id === editingData.id);
+    // Strip restricted fields
+    const { id, created_at, ...updates } = editingData;
 
-    // AUTO-GEOCODE IF ADDRESS CHANGED
-    if (original && original.address !== editingData.address) {
-      const { lat, lng } = await geocodeAddress(editingData.address);
+    // DIAGNOSTIC 1: Check what React is trying to send
+    console.log("🚀 SENDING PAYLOAD:", updates);
+    if (!updates.image_urls || updates.image_urls.length === 0) {
+      alert("⚠️ React Alert: The image_urls array is empty BEFORE sending to Supabase. The images didn't stick to the state.");
+    }
+
+    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    const original = allRests.find(r => r.id === id);
+
+    if (original && original.address !== updates.address && updates.address) {
+      const { lat, lng } = await geocodeAddress(updates.address);
       if (lat && lng) {
         updates.lat = lat;
         updates.lng = lng;
       }
     }
 
-    const { error } = await supabase.from('restaurants').update(updates).eq('id', editingData.id);
-    if (!error) { setEditingData(null); fetchAllData(); }
-    else { setLoading(false); }
+    // Force Supabase to return the 'image_urls' column so we can prove it saved
+    const { data, error } = await supabase
+      .from('restaurants')
+      .update(updates)
+      .eq('id', id)
+      .select('image_urls');
+    
+    setLoading(false);
+
+    if (error) { 
+      alert(`❌ Database Rejection:\n${error.message}`);
+      console.error("Save Error:", error);
+    } else { 
+      // DIAGNOSTIC 2: See exactly what the database accepted
+      alert(`✅ Database Save Successful!\n\nSupabase returned this for the gallery:\n${JSON.stringify(data?.[0]?.image_urls, null, 2)}`);
+      setEditingData(null); 
+      fetchAllData(); 
+    }
   };
 
   if (!isAuthenticated) {
@@ -401,7 +466,6 @@ export default function AdminDashboard() {
       <div className="flex justify-between items-end mb-8 border-b border-gray-200 pb-4">
         <div>
           <h1 className="text-4xl font-black text-gray-900 tracking-tight">Admin CMS</h1>
-          {/* SYNC COORDINATES BUTTON */}
           <button 
             onClick={batchUpdateCoordinates} 
             disabled={batchStatus?.isRunning}
@@ -559,8 +623,8 @@ export default function AdminDashboard() {
                          </div>
                          <div className="space-y-4 bg-blue-50/50 p-6 rounded-3xl border border-blue-100">
                             <h3 className="text-xs font-black text-blue-600 uppercase">🌐 {selectedTransLang.toUpperCase()} Translation</h3>
-                            <input type="text" value={transDraft.title} onChange={(e) => setTransDraft({...transDraft, title: e.target.value})} className="w-full p-4 border border-blue-200 rounded-2xl font-bold" placeholder="Translated Title" />
-                            <textarea rows={6} value={transDraft.description} onChange={(e) => setTransDraft({...transDraft, description: e.target.value})} className="w-full p-4 border border-blue-200 rounded-2xl" placeholder="Translated Description" />
+                            <input type="text" value={transDraft.title} onChange={(e) => setTransDraft(prev => ({...prev, title: e.target.value}))} className="w-full p-4 border border-blue-200 rounded-2xl font-bold" placeholder="Translated Title" />
+                            <textarea rows={6} value={transDraft.description} onChange={(e) => setTransDraft(prev => ({...prev, description: e.target.value}))} className="w-full p-4 border border-blue-200 rounded-2xl" placeholder="Translated Description" />
                          </div>
                        </div>
                        <button onClick={saveRestaurantTranslation} disabled={savingTrans} className="w-full bg-blue-600 text-white font-black py-5 rounded-3xl shadow-xl hover:bg-blue-700 transition disabled:opacity-50">
@@ -578,7 +642,6 @@ export default function AdminDashboard() {
             <div className="max-w-6xl space-y-12 pb-20">
               <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
                 <h2 className="text-3xl font-black mb-2">🎉 Event Management (DMS)</h2>
-                {/* ✅ Added constant checkbox and disabled logic for dates */}
                 <form onSubmit={addCategory} className="flex flex-wrap items-center gap-4 mb-10 border-b pb-10 bg-gray-50 p-6 rounded-3xl">
                   <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New Event Name" className="flex-1 min-w-[200px] p-4 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-purple-500" />
                   
@@ -609,7 +672,6 @@ export default function AdminDashboard() {
                         </div>
                       </div>
                       
-                      {/* ✅ Modified to grid-cols-4 and added constant toggle */}
                       <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 border-b border-gray-100 bg-white items-end">
                         <div className="flex items-center h-full pb-3">
                            <label className="flex items-center cursor-pointer gap-3 p-3 border border-purple-200 bg-purple-50 rounded-xl w-full hover:bg-purple-100 transition">
@@ -795,7 +857,7 @@ export default function AdminDashboard() {
                       {editingData.other_options?.includes(cat.name) && (
                         <div className="animate-in slide-in-from-top-2">
                            <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-2">Shop Collaboration Text (JA)</label>
-                           <textarea rows={2} value={editingData.category_collabs?.[cat.name] || ''} onChange={(e) => setEditingData({...editingData, category_collabs: { ...(editingData.category_collabs || {}), [cat.name]: e.target.value }})} placeholder="Collab content..." className="w-full p-4 border border-purple-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-purple-500" />
+                           <textarea rows={2} value={editingData.category_collabs?.[cat.name] || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, category_collabs: { ...(prev.category_collabs || {}), [cat.name]: e.target.value }}))} placeholder="Collab content..." className="w-full p-4 border border-purple-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-purple-500" />
                         </div>
                       )}
                     </div>
@@ -827,24 +889,50 @@ export default function AdminDashboard() {
 
               <section className="space-y-8">
                  <h3 className="text-xl font-black text-gray-900 border-b pb-2">Basic Info</h3>
+                 
+                 {/* GALLERY UPLOAD AREA */}
+                 <div className="bg-gray-50 p-6 rounded-3xl border border-gray-200">
+                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Gallery Images (Multiple)</label>
+                    <input type="file" multiple accept="image/*" onChange={handleGalleryUpload} className="text-sm font-bold mb-6 block w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100" />
+                    
+                    {editingData.image_urls && editingData.image_urls.length > 0 && (
+                      <div className="flex flex-wrap gap-4 mt-4">
+                        {editingData.image_urls.map((url: string, idx: number) => (
+                          <div key={idx} className="relative w-28 h-28 group">
+                            <img src={url} className="w-full h-full object-cover rounded-2xl shadow-sm border border-gray-200" />
+                            <button onClick={() => removeGalleryImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 shadow-md transition transform hover:scale-110">✕</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                 </div>
+
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                     <div>
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Cover Photo</label>
-                      <img src={editingData.image_url || '/images/default.jpg'} className="w-full h-48 object-cover rounded-3xl mb-4 border" alt="Preview" />
-                      <input type="file" onChange={handleImageUpload} className="text-xs font-bold" />
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Main Cover Photo</label>
+                      <img src={editingData.image_url || '/images/default.jpg'} className="w-full h-48 object-cover rounded-3xl mb-4 border shadow-sm" alt="Preview" />
+                      <input type="file" onChange={handleImageUpload} className="text-sm font-bold w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200" />
                     </div>
-                    <div className="space-y-4">
-                      <input type="text" value={editingData.title || ''} onChange={(e) => setEditingData({...editingData, title: e.target.value})} className="w-full p-4 border rounded-2xl font-black text-lg" placeholder="Shop Title" />
-                      <input type="number" value={editingData.restaurant_price || ''} onChange={(e) => setEditingData({...editingData, restaurant_price: parseInt(e.target.value)})} className="w-full p-4 border rounded-2xl font-bold" placeholder="Price" />
-                      <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData({...editingData, address: e.target.value})} className="w-full p-4 border rounded-2xl font-bold" placeholder="Address" />
+                    
+                    <div className="space-y-4 flex flex-col justify-end">
+                      <input type="text" value={editingData.title || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, title: e.target.value}))} className="w-full p-4 border rounded-2xl font-black text-lg shadow-sm" placeholder="Shop Title" />
+                      <input type="number" value={editingData.restaurant_price || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, restaurant_price: parseInt(e.target.value)}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Price" />
+                      <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, address: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Address" />
                       <div className="flex gap-2">
-                        <input type="text" disabled value={`Lat: ${editingData.lat || 'None'}`} className="flex-1 p-2 bg-gray-50 border rounded-lg text-[10px] font-mono" />
-                        <input type="text" disabled value={`Lng: ${editingData.lng || 'None'}`} className="flex-1 p-2 bg-gray-50 border rounded-lg text-[10px] font-mono" />
+                        <input type="text" disabled value={`Lat: ${editingData.lat || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
+                        <input type="text" disabled value={`Lng: ${editingData.lng || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
                       </div>
                     </div>
                  </div>
-                 <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData({...editingData, description: e.target.value})} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed" placeholder="Description..." />
-                 <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData({...editingData, full_menu: e.target.value})} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium" placeholder="Menu..." />
+
+                 {/* OPERATING HOURS */}
+                 <div>
+                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Operating Hours</label>
+                   <textarea rows={3} value={editingData.operating_hours || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm font-medium" placeholder="Mon-Fri: 11:00-22:00&#10;Sat-Sun: 10:00-23:00" />
+                 </div>
+
+                 <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, description: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm" placeholder="Description..." />
+                 <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, full_menu: e.target.value}))} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium shadow-inner" placeholder="Menu..." />
               </section>
 
               <button onClick={saveEdits} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-black py-6 rounded-[32px] shadow-2xl hover:shadow-orange-500/20 transition transform hover:-translate-y-1 text-xl">
