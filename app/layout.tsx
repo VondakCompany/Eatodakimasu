@@ -9,6 +9,9 @@ const inter = Inter({ subsets: ["latin"] });
 export const metadata: Metadata = {
   title: "Eatodakimasu | Waseda Restaurant Guide",
   description: "Discover the best student-friendly restaurants, hidden gems, and cheap eats around Waseda University. Updated for 2026.",
+  other: {
+    google: 'notranslate',
+  },
 };
 
 export default function RootLayout({
