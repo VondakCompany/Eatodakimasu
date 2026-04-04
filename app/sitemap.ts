@@ -3,7 +3,7 @@ import { supabase } from '@/lib/supabaseClient';
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // ⚠️ Replace this with your actual live domain URL
-  const baseUrl = 'https://eatodakimasu.vercel.app'; 
+  const baseUrl = 'https://eatodakimasu.com'; 
 
   // 1. Fetch only the IDs and timestamps of APPROVED restaurants
   const { data: restaurants } = await supabase
