@@ -14,6 +14,8 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
   const [isSavingAds, setIsSavingAds] = useState(false);
   const [isInspectorOpen, setIsInspectorOpen] = useState(false); 
   
+  const [localAds, setLocalAds] = useState<any[]>(adCampaigns || []);
+  
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const mobileIframeRef = useRef<HTMLIFrameElement>(null);
   
@@ -22,13 +24,20 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
   const [previewUrl, setPreviewUrl] = useState('/'); 
   const [previewContext, setPreviewContext] = useState<'home' | 'service_page' | 'restaurant_template' | 'restaurant_specific'>('home');
   
-  const [libraryAssets] = useState([
+  // Converted to local state to allow uploading and deleting
+  const [libraryAssets, setLibraryAssets] = useState<string[]>([
      'https://picsum.photos/seed/3/400/600',
      'https://picsum.photos/seed/4/400/600',
      'https://picsum.photos/seed/5/400/600',
      'https://picsum.photos/seed/6/400/600'
   ]);
+  const [uploadingAsset, setUploadingAsset] = useState(false);
+
   const editorUrl = previewUrl + (previewUrl.includes('?') ? '&' : '?') + 'ad_editor=true';
+
+  useEffect(() => {
+    setLocalAds(adCampaigns);
+  }, [adCampaigns]);
 
   useEffect(() => {
     if (activeTab !== 'ad_studio') return;
@@ -66,9 +75,36 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
     return () => clearInterval(interval);
   }, [activeTab, previewMode, previewUrl]);
 
+  // Handle uploading new ad media to Supabase
+  const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingAsset(true);
+    try {
+      const fileName = `ad-asset-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, '_')}`;
+      const { error } = await supabase.storage.from('restaurant-images').upload(fileName, file);
+      if (error) throw error;
+      
+      const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
+      setLibraryAssets(prev => [publicData.publicUrl, ...prev]);
+    } catch (error: any) {
+      alert(`Upload Error:\n${error.message}`);
+    } finally {
+      setUploadingAsset(false);
+      e.target.value = '';
+    }
+  };
+
+  // Remove an asset from the local grid
+  const removeAsset = (index: number) => {
+    if (confirm('Remove this asset from your library?')) {
+      setLibraryAssets(prev => prev.filter((_, i) => i !== index));
+    }
+  };
+
   const saveAllAds = async () => {
     setIsSavingAds(true);
-    const payload = adCampaigns.map((ad: any) => ({
+    const payload = localAds.map((ad: any) => ({
       id: ad.id,
       image_url: ad.image_url,
       x: ad.x, y: ad.y, w: ad.w, h: ad.h,
@@ -82,7 +118,10 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
     const { error } = await supabase.from('ad_campaigns').upsert(payload);
     setIsSavingAds(false);
     if (error) alert(`Error saving ads: ${error.message}`);
-    else alert('✅ All ads saved to database!');
+    else {
+      setAdCampaigns(localAds); 
+      alert('✅ All ads saved to database!');
+    }
   };
 
   const deleteAdFromDb = async (id: string) => {
@@ -90,7 +129,9 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
     if (error) {
       alert(`Error deleting ad: ${error.message}`);
     } else {
-      setAdCampaigns((ads: any[]) => ads.filter(a => a.id !== id));
+      const updatedAds = localAds.filter(a => a.id !== id);
+      setLocalAds(updatedAds);
+      setAdCampaigns(updatedAds); 
       setSelectedAdId(null);
       setIsInspectorOpen(false);
     }
@@ -135,7 +176,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
         target_page: defaultTarget,
         targeting_rules: { keywords: '', categories: [], require_open: false, max_distance_km: 5 }
       };
-      setAdCampaigns((prev: any[]) => [...prev, newAd]);
+      setLocalAds((prev: any[]) => [...prev, newAd]);
       setSelectedAdId(newAd.id);
       setIsInspectorOpen(true);
     }
@@ -157,7 +198,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
       }
       const dx = (moveEvent.screenX - startX) / scale;
       const dy = (moveEvent.screenY - startY) / scale;
-      setAdCampaigns((ads: any[]) => ads.map(a => a.id === ad.id ? { ...a, x: startPosX + dx, y: startPosY + dy } : a));
+      setLocalAds((ads: any[]) => ads.map(a => a.id === ad.id ? { ...a, x: startPosX + dx, y: startPosY + dy } : a));
     };
     const onMouseUp = () => { 
       setIsMoving(false); 
@@ -189,7 +230,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
       if (handle.includes('s')) newH = Math.max(40, startH + dy);
       if (handle.includes('w')) { newW = Math.max(40, startW - dx); newX = startPosX + (startW - newW); }
       if (handle.includes('n')) { newH = Math.max(40, startH - dy); newY = startPosY + (startH - newH); }
-      setAdCampaigns((ads: any[]) => ads.map(a => a.id === ad.id ? { ...a, w: newW, h: newH, x: newX, y: newY } : a));
+      setLocalAds((ads: any[]) => ads.map(a => a.id === ad.id ? { ...a, w: newW, h: newH, x: newX, y: newY } : a));
     };
     const onMouseUp = () => { 
       setIsMoving(false); 
@@ -200,7 +241,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
     document.addEventListener('mouseup', onMouseUp);
   };
 
-  const visibleAds = adCampaigns.filter((ad: any) => {
+  const visibleAds = localAds.filter((ad: any) => {
     if (ad.target_page === '*') return true; 
     if (previewContext === 'home' && ad.target_page === '/') return true;
     if (previewContext === 'service_page' && ad.target_page === previewUrl) return true;
@@ -219,16 +260,25 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Drag to Canvas</p>
           </div>
           <div className="p-5 overflow-y-auto flex-1 space-y-8">
-             <button className="w-full border-2 border-dashed border-indigo-300 bg-indigo-50/50 rounded-2xl p-6 text-center hover:bg-indigo-50 transition cursor-pointer group">
+             <label className="w-full block border-2 border-dashed border-indigo-300 bg-indigo-50/50 rounded-2xl p-6 text-center hover:bg-indigo-50 transition cursor-pointer group">
+               <input type="file" accept="image/*" className="hidden" onChange={handleAssetUpload} disabled={uploadingAsset} />
                <span className="block text-3xl mb-2 group-hover:-translate-y-1 transition-transform">☁️</span>
-               <span className="text-xs font-black text-indigo-600">Upload Image</span>
-             </button>
+               <span className="text-xs font-black text-indigo-600">{uploadingAsset ? 'Uploading...' : 'Upload Image'}</span>
+             </label>
              <div>
                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Media Grid</h3>
                <div className="grid grid-cols-2 gap-3">
                  {libraryAssets.map((asset, i) => (
-                   <div key={i} draggable onDragStart={(e) => handleDragStart(e, 'asset', asset)} className="w-full h-32 rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing overflow-hidden relative group">
+                   <div key={i} draggable onDragStart={(e) => handleDragStart(e, 'asset', asset)} className="w-full h-32 rounded-xl border border-gray-200 cursor-grab active:cursor-grabbing overflow-hidden relative group bg-white">
                      <img src={asset} className="w-full h-full object-cover pointer-events-none" />
+                     <button 
+                       onMouseDown={(e) => e.stopPropagation()} 
+                       onClick={(e) => { e.stopPropagation(); removeAsset(i); }} 
+                       className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 shadow-md transition transform hover:scale-110 z-50 cursor-pointer"
+                       title="Delete Asset"
+                     >
+                       ✕
+                     </button>
                    </div>
                  ))}
                </div>
@@ -349,9 +399,9 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
            </div>
            <div className="p-6 overflow-y-auto flex-1 bg-white">
               {(() => {
-                const activeAd = adCampaigns.find((a: any) => a.id === selectedAdId);
+                const activeAd = localAds.find((a: any) => a.id === selectedAdId);
                 if (!activeAd) return null;
-                const updateAd = (updates: any) => setAdCampaigns((ads: any[]) => ads.map(a => a.id === selectedAdId ? { ...a, ...updates } : a));
+                const updateAd = (updates: any) => setLocalAds((ads: any[]) => ads.map(a => a.id === selectedAdId ? { ...a, ...updates } : a));
                 const updateRules = (updates: any) => updateAd({ targeting_rules: { ...activeAd.targeting_rules, ...updates } });
                 const isGridPage = activeAd.target_page === '/' || activeAd.target_page === '*';
                 

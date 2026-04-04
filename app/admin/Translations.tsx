@@ -53,6 +53,32 @@ export default function Translations({
     if (!error) { setNewLangCode(''); setNewLangName(''); fetchAllData(); }
   };
 
+  const deleteLanguage = async (code: string, name: string) => {
+    if (code === 'ja') {
+      alert("Action Denied: You cannot delete the base language (Japanese).");
+      return;
+    }
+
+    // Tally up all existing data for this language
+    const uiCount = uiTranslations.filter((t: any) => t.values && t.values[code]).length;
+    const tagCount = masterFilters.filter((f: any) => f.translations && f.translations[code]).length;
+    const restCount = translatableRestaurants.filter((r: any) => r.translations && r.translations[code] && Object.keys(r.translations[code]).length > 0).length;
+
+    const warningMessage = `Are you absolutely sure you want to delete the language "${name}" (${code})?\n\nThis will permanently remove access to:\n• ${uiCount} UI Dictionary translations\n• ${tagCount} Tag translations\n• ${restCount} Restaurant translations\n\nThis action cannot be easily undone. Proceed?`;
+
+    if (confirm(warningMessage)) {
+      const { error } = await supabase.from('app_languages').delete().eq('code', code);
+      if (error) {
+        alert(`Error deleting language: ${error.message}`);
+      } else {
+        fetchAllData();
+        if (selectedTransLang === code) {
+          setSelectedTransLang('');
+        }
+      }
+    }
+  };
+
   const addTranslationKey = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newTransKey.trim()) return;
@@ -104,7 +130,20 @@ export default function Translations({
               <button type="submit" className="bg-blue-600 text-white font-black px-6 py-3 rounded-xl">Add</button>
             </form>
             <div className="flex flex-wrap gap-3">
-              {appLanguages.map((l: any) => <span key={l.code} className="px-4 py-2 bg-blue-50 text-blue-700 rounded-xl font-bold border border-blue-100">{l.name} ({l.code})</span>)}
+              {appLanguages.map((l: any) => (
+                <div key={l.code} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl font-bold border border-blue-100">
+                  <span>{l.name} ({l.code})</span>
+                  {l.code !== 'ja' && (
+                    <button 
+                      onClick={() => deleteLanguage(l.code, l.name)}
+                      className="w-5 h-5 flex items-center justify-center bg-blue-200 text-blue-800 hover:bg-red-500 hover:text-white rounded-full text-[10px] transition-colors"
+                      title="Delete Language"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200 overflow-x-auto">

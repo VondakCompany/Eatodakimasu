@@ -97,9 +97,10 @@ export default function AdminDashboard() {
     return () => subscription.unsubscribe();
   }, []);
 
+  // FIXED: Using currentUserProfile?.id prevents object reference loops from triggering refetches
   useEffect(() => { 
-    if (isAuthenticated && currentUserProfile) fetchAllData(); 
-  }, [isAuthenticated, currentUserProfile]);
+    if (isAuthenticated && currentUserProfile?.id) fetchAllData(); 
+  }, [isAuthenticated, currentUserProfile?.id]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -331,12 +332,23 @@ export default function AdminDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 relative min-h-screen pb-20">
+      
+      {/* FIXED: Non-destructive Global Loading Indicator */}
+      {loading && (
+        <div className={`fixed z-[9999] flex items-center justify-center pointer-events-none transition-opacity duration-300 ${liveRestaurants.length === 0 ? 'inset-0 bg-gray-50' : 'bottom-10 right-10'}`}>
+          <div className={`font-black tracking-widest flex items-center gap-3 ${liveRestaurants.length === 0 ? 'text-gray-400 text-xl animate-pulse' : 'bg-gray-900 text-white px-6 py-4 rounded-full shadow-2xl text-xs pointer-events-auto'}`}>
+            {liveRestaurants.length > 0 && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>}
+            {liveRestaurants.length === 0 ? 'CONNECTING TO DATABASE...' : 'SYNCING DATABASE...'}
+          </div>
+        </div>
+      )}
+
       <div className="flex justify-between items-end mb-8 border-b border-gray-200 pb-4">
         <div>
           <h1 className="text-4xl font-black text-gray-900 tracking-tight">Admin CMS</h1>
           <button 
             onClick={batchUpdateCoordinates} disabled={batchStatus?.isRunning}
-            className="mt-2 text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50"
+            className="mt-2 text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50 pointer-events-auto"
           >
             {batchStatus?.isRunning ? `⚙️ Syncing... (${batchStatus.current}/${batchStatus.total})` : "📍 Missing Coordinates Sync"}
           </button>
@@ -365,21 +377,18 @@ export default function AdminDashboard() {
         {hasAccess('users') && <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>👥 Team</button>}
       </div>
       
-      {loading ? (
-         <div className="text-center py-20 animate-pulse text-gray-400 font-black text-xl tracking-widest">CONNECTING TO DATABASE...</div>
-      ) : (
-        <>
+      {/* FIXED: Elements now safely stay mounted to prevent the iframe reset loop */}
+      <div className={`transition-opacity duration-300 ${loading && liveRestaurants.length === 0 ? 'opacity-0' : 'opacity-100'}`}>
           {activeTab === 'users' && hasAccess('users') && <UserManagement />}
           {activeTab === 'ad_studio' && hasAccess('ad_studio') && <AdStudio adCampaigns={adCampaigns} setAdCampaigns={setAdCampaigns} liveRestaurants={liveRestaurants} activeTab={activeTab} />}
           {activeTab === 'translations' && hasAccess('translations') && <Translations appLanguages={appLanguages} setAppLanguages={setAppLanguages} uiTranslations={uiTranslations} setUiTranslations={setUiTranslations} masterFilters={masterFilters} setMasterFilters={setMasterFilters} liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} updateBaseTagName={updateBaseTagName} />}
           {activeTab === 'categories' && hasAccess('categories') && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
           {activeTab === 'directory' && hasAccess('directory') && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
           {activeTab === 'pending' && hasAccess('pending') && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
-        </>
-      )}
+      </div>
 
       {managingCategory && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 pointer-events-auto">
           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col relative overflow-hidden">
             <div className="bg-purple-600 p-8 flex justify-between items-center text-white">
               <div>
@@ -412,7 +421,7 @@ export default function AdminDashboard() {
       )}
 
       {editingData && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 pointer-events-auto">
           <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col relative">
             <div className="sticky top-0 bg-white/90 backdrop-blur p-8 border-b border-gray-100 z-10 flex flex-col gap-4">
               <div className="flex justify-between items-center">
@@ -512,7 +521,7 @@ export default function AdminDashboard() {
       )}
 
       {showPasswordModal && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4 pointer-events-auto">
           <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md p-8 animate-in zoom-in-95 duration-200">
             <h2 className="text-2xl font-black text-gray-900 mb-2">Update Password</h2>
             <p className="text-gray-500 text-sm font-bold mb-6">If you logged in via an invite link, set your permanent password here.</p>
