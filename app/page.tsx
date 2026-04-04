@@ -1,12 +1,18 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
 import RestaurantCard from '@/components/RestaurantCard';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { isOpenNow } from '@/lib/timeUtils'; 
-import React from 'react'; 
+
+const CAMPUSES = {
+  waseda: { name: '早稲田', lat: 35.7089, lng: 139.7202 },
+  toyama: { name: '戸山', lat: 35.7056, lng: 139.7153 },
+  nishiwaseda: { name: '西早稲田', lat: 35.7058, lng: 139.7067 },
+  tokorozawa: { name: '所沢', lat: 35.7876, lng: 139.4002 },
+};
 
 export default function Home() {
   const { currentLang, t } = useLanguage();
@@ -18,12 +24,14 @@ export default function Home() {
   const [payments, setPayments] = useState<string[]>([]);
   const [otherOptions, setOtherOptions] = useState<string[]>([]);
   const [openNowOnly, setOpenNowOnly] = useState(false); 
+  
+  const [campusSort, setCampusSort] = useState('');
+  const [seatCapacity, setSeatCapacity] = useState('');
 
   const [restaurants, setRestaurants] = useState<any[]>([]);
   const [masterFilters, setMasterFilters] = useState<any[]>([]);
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   
-  // Real-time Editor Sync States
   const [ads, setAds] = useState<any[]>([]); 
   const [selectedAdId, setSelectedAdId] = useState<string | null>(null);
   
@@ -49,7 +57,6 @@ export default function Home() {
        setIsEditor(true);
     }
 
-    // Ad Studio PostMessage Listener
     const handleMessage = (e: MessageEvent) => {
       if (e.data?.type === 'AD_STUDIO_SYNC') {
          setAds(e.data.ads);
@@ -73,7 +80,8 @@ export default function Home() {
 
   const clearFilters = () => {
     setQuery(''); setPrice(3000); setCuisines([]); setRestrictions([]); setPayments([]); setOtherOptions([]);
-    setOpenNowOnly(false); setUserLocation(null); setGeoError('');
+    setOpenNowOnly(false); setCampusSort(''); setSeatCapacity('');
+    setUserLocation(null); setGeoError('');
   };
 
   const toggleLocation = () => {
@@ -82,7 +90,7 @@ export default function Home() {
     setIsLocating(true); setGeoError('');
 
     navigator.geolocation.getCurrentPosition(
-      (position) => { setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }); setIsLocating(false); },
+      (position) => { setUserLocation({ lat: position.coords.latitude, lng: position.coords.longitude }); setIsLocating(false); setCampusSort(''); },
       (error) => { console.error(error); setGeoError(t('geo_error', '位置情報を取得できませんでした。許可設定をご確認ください。')); setIsLocating(false); },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
     );
@@ -97,7 +105,7 @@ export default function Home() {
       ]);
 
       if (filtersRes.data) setMasterFilters(filtersRes.data);
-      if (adsRes.data && !isEditor) setAds(adsRes.data); // Only load DB ads if not in editor
+      if (adsRes.data && !isEditor) setAds(adsRes.data); 
       
       if (eventsRes.data) {
         const today = new Date().toISOString().split('T')[0]; 
@@ -119,13 +127,18 @@ export default function Home() {
 
   useEffect(() => {
     setPage(0); setRestaurants([]); setHasMore(true);
-  }, [query, price, cuisines, restrictions, payments, otherOptions, userLocation, openNowOnly]);
+  }, [query, price, cuisines, restrictions, payments, otherOptions, userLocation, openNowOnly, campusSort, seatCapacity]);
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371e3; const φ1 = lat1 * Math.PI/180; const φ2 = lat2 * Math.PI/180;
-    const Δφ = (lat2-lat1) * Math.PI/180; const Δλ = (lon2-lon1) * Math.PI/180;
+    const R = 6371e3; 
+    const φ1 = lat1 * Math.PI/180; 
+    const φ2 = lat2 * Math.PI/180;
+    const Δφ = (lat2-lat1) * Math.PI/180; 
+    const Δλ = (lon2-lon1) * Math.PI/180;
     const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
-    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); return R * c; 
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
+    const straightLineDist = R * c;
+    return straightLineDist * 1.3; 
   };
 
   useEffect(() => {
@@ -145,16 +158,53 @@ export default function Home() {
       if (payments.length > 0) dbQuery = dbQuery.overlaps('payment_methods', payments);
       if (otherOptions.length > 0) dbQuery = dbQuery.overlaps('other_options', otherOptions);
 
-      if (userLocation) {
+      const requiresClientProcessing = userLocation || campusSort || seatCapacity || openNowOnly;
+
+      if (requiresClientProcessing) {
         const { data, error } = await dbQuery.limit(1000);
         if (!error && data) {
-          let processed = data
-            .filter(r => r.lat && r.lng)
-            .map(r => ({ ...r, dist_meters: calculateDistance(userLocation.lat, userLocation.lng, r.lat, r.lng) }))
-            .sort((a, b) => a.dist_meters - b.dist_meters);
-
-          if (openNowOnly) processed = processed.filter(r => isOpenNow(r.operating_hours));
           
+          let processed = data.map(r => {
+            let dist_meters = undefined;
+            let campus_dist_meters = undefined;
+            let campus_name = undefined;
+
+            if (r.lat && r.lng) {
+              if (userLocation) {
+                dist_meters = calculateDistance(userLocation.lat, userLocation.lng, r.lat, r.lng);
+              }
+              if (campusSort) {
+                const target = CAMPUSES[campusSort as keyof typeof CAMPUSES];
+                campus_dist_meters = calculateDistance(target.lat, target.lng, r.lat, r.lng);
+                campus_name = target.name.split(' ')[0]; 
+              }
+            }
+            return { ...r, dist_meters, campus_dist_meters, campus_name };
+          });
+
+          if (seatCapacity) {
+            processed = processed.filter(r => {
+              const rawSeats = (r.total_seats || '').toString();
+              const seatNumber = parseInt(rawSeats.replace(/[^0-9]/g, ''), 10) || 0;
+              if (seatCapacity === 'small' && (seatNumber < 1 || seatNumber > 10)) return false;
+              if (seatCapacity === 'medium' && (seatNumber < 11 || seatNumber > 30)) return false;
+              if (seatCapacity === 'large' && seatNumber < 31) return false;
+              return true;
+            });
+          }
+
+          if (openNowOnly) {
+            processed = processed.filter(r => isOpenNow(r.operating_hours));
+          }
+
+          if (campusSort) {
+            processed = processed.filter(r => r.campus_dist_meters !== undefined);
+            processed.sort((a, b) => (a.campus_dist_meters || 0) - (b.campus_dist_meters || 0));
+          } else if (userLocation) {
+            processed = processed.filter(r => r.dist_meters !== undefined);
+            processed.sort((a, b) => (a.dist_meters || 0) - (b.dist_meters || 0));
+          }
+
           setRestaurants(processed); setTotalCount(processed.length); setHasMore(false);
         }
       } else {
@@ -165,27 +215,24 @@ export default function Home() {
         const { data, error, count } = await dbQuery.range(from, to);
 
         if (!error && data) {
-          let processed = data;
-          if (openNowOnly) processed = processed.filter(r => isOpenNow(r.operating_hours));
-
-          if (page === 0) { setRestaurants(processed); setTotalCount(count || 0); } 
-          else { setRestaurants(prev => [...prev, ...processed]); }
+          if (page === 0) { setRestaurants(data); setTotalCount(count || 0); } 
+          else { setRestaurants(prev => [...prev, ...data]); }
           if (data.length < ITEMS_PER_PAGE) setHasMore(false);
         }
       }
       setLoading(false);
     }, 250);
     return () => clearTimeout(delayDebounceFn);
-  }, [query, price, cuisines, restrictions, payments, otherOptions, page, userLocation, openNowOnly]);
+  }, [query, price, cuisines, restrictions, payments, otherOptions, page, userLocation, openNowOnly, campusSort, seatCapacity]);
 
   const lastElementRef = useCallback((node: HTMLDivElement | null) => {
-    if (loading || userLocation) return; 
+    if (loading || userLocation || campusSort || seatCapacity || openNowOnly) return; 
     if (observer.current) observer.current.disconnect();
     observer.current = new IntersectionObserver(entries => { if (entries[0].isIntersecting && hasMore) setPage(prev => prev + 1); });
     if (node) observer.current.observe(node);
-  }, [loading, hasMore, userLocation]);
+  }, [loading, hasMore, userLocation, campusSort, seatCapacity, openNowOnly]);
 
-  const hasActiveFilters = query || price !== 3000 || cuisines.length > 0 || restrictions.length > 0 || payments.length > 0 || otherOptions.length > 0 || userLocation !== null || openNowOnly;
+  const hasActiveFilters = query || price !== 3000 || cuisines.length > 0 || restrictions.length > 0 || payments.length > 0 || otherOptions.length > 0 || userLocation !== null || openNowOnly || campusSort !== '' || seatCapacity !== '';
 
   const dbCuisines = masterFilters.filter(f => f.type === 'cuisine');
   const dbRestrictions = masterFilters.filter(f => f.type === 'restriction');
@@ -206,18 +253,10 @@ export default function Home() {
   return (
     <div className="w-full relative">
       
-      {/* DESKTOP AD LAYER (Hidden when in editor to prevent overlap with draggables) */}
       {mounted && !isEditor && createPortal(
         <div className="hidden lg:block absolute top-0 left-1/2 transform -translate-x-1/2 w-[1600px] h-0 z-40 pointer-events-none">
           {ads.map(ad => (
-            <a 
-              key={ad.id} 
-              href={ad.action_url || '#'} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="absolute pointer-events-auto rounded-[1.5rem] overflow-hidden transition hover:opacity-90 bg-gray-50"
-              style={{ left: ad.x, top: ad.y, width: ad.w, height: ad.h }}
-            >
+            <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="absolute pointer-events-auto rounded-[1.5rem] overflow-hidden transition hover:opacity-90 bg-gray-50" style={{ left: ad.x, top: ad.y, width: ad.w, height: ad.h }}>
               <img src={ad.image_url} className="w-full h-full object-cover" alt="Advertisement" />
             </a>
           ))}
@@ -225,26 +264,16 @@ export default function Home() {
         document.body
       )}
 
-      {/* MOBILE STICKY AD LAYER (Always rendered, intercepted by isEditor) */}
       {mounted && createPortal(
         <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 pointer-events-none pb-[env(safe-area-inset-bottom)]">
           {ads.filter(a => a.mobile_fallback === 'sticky').map(ad => (
-            <a 
-              key={ad.id} 
-              href={ad.action_url || '#'} 
-              target="_blank" 
-              rel="noopener noreferrer"
-              onClick={(e) => {
-                if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); }
-              }}
-              className={`w-full h-24 bg-white/90 backdrop-blur-md flex items-center px-5 gap-4 border-t pointer-events-auto transition-all ${selectedAdId === ad.id ? 'border-t-indigo-500 border-t-[4px] -translate-y-2' : 'border-gray-200'}`}
-            >
+            <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => { if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); } }} className={`w-full h-24 bg-white/90 backdrop-blur-md flex items-center px-5 gap-4 border-t pointer-events-auto transition-all ${selectedAdId === ad.id ? 'border-t-indigo-500 border-t-[4px] -translate-y-2' : 'border-gray-200'}`}>
               <img src={ad.image_url} className="w-14 h-14 rounded-2xl object-cover shadow-sm" alt="Sponsored" />
               <div className="flex flex-col flex-1 truncate">
-                <span className="font-black text-sm text-gray-900">Special Promo</span>
-                <span className="font-bold text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">Sponsored</span>
+                <span className="font-black text-sm text-gray-900">{t('ad_sticky_title', 'Special Promo')}</span>
+                <span className="font-bold text-[10px] text-gray-400 uppercase tracking-wide mt-0.5">{t('ad_sponsored_label', 'Sponsored')}</span>
               </div>
-              <span className="bg-indigo-600 text-white px-5 py-2.5 rounded-full text-xs font-black shadow-sm">Open</span>
+              <span className="bg-indigo-600 text-white px-5 py-2.5 rounded-full text-xs font-black shadow-sm">{t('ad_open_btn', 'Open')}</span>
             </a>
           ))}
         </div>,
@@ -253,30 +282,20 @@ export default function Home() {
 
       <div className="max-w-7xl mx-auto w-full flex flex-col gap-6 md:gap-10 py-6 relative z-10 pb-[env(safe-area-inset-bottom)]">
         
-        {/* NATIVE MOBILE TOP ADS */}
         {topAds.length > 0 && (
           <div className="w-full max-w-3xl mx-auto px-4 mt-2">
             {topAds.map(ad => (
-              <a 
-                key={ad.id} 
-                href={ad.action_url || '#'} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); }
-                }}
-                className={`lg:hidden block w-full bg-white rounded-[2rem] shadow-sm border overflow-hidden mb-6 group transition-all duration-300 ${selectedAdId === ad.id ? 'ring-4 ring-indigo-500 border-indigo-500 scale-[1.02]' : 'border-gray-200 hover:shadow-xl'}`}
-              >
+              <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => { if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); } }} className={`lg:hidden block w-full bg-white rounded-[2rem] shadow-sm border overflow-hidden mb-6 group transition-all duration-300 ${selectedAdId === ad.id ? 'ring-4 ring-indigo-500 border-indigo-500 scale-[1.02]' : 'border-gray-200 hover:shadow-xl'}`}>
                 <div className="relative h-48 w-full overflow-hidden">
                   <img src={ad.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt="Sponsored" />
-                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-sm">Sponsored</div>
+                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-sm">{t('ad_sponsored_label', 'Sponsored')}</div>
                 </div>
                 <div className="p-5 flex items-center justify-between">
                   <div className="flex flex-col">
-                    <span className="font-black text-lg text-gray-900">Featured Content</span>
-                    <span className="text-xs font-bold text-gray-400 mt-0.5">Tap to explore</span>
+                    <span className="font-black text-lg text-gray-900">{t('ad_featured_title', 'Featured Content')}</span>
+                    <span className="text-xs font-bold text-gray-400 mt-0.5">{t('ad_featured_desc', 'Tap to explore')}</span>
                   </div>
-                  <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">↗</div>
+                  <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">→</div>
                 </div>
               </a>
             ))}
@@ -288,23 +307,12 @@ export default function Home() {
           
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative shadow-lg rounded-2xl group bg-white flex-1">
-              <span className="absolute left-6 top-1/2 transform -translate-y-1/2 text-gray-400 text-xl md:text-2xl">🔍</span>
-              <input
-                type="text"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder={t('search_placeholder', 'レストラン名、メニュー、エリアで検索')}
-                className="w-full pl-14 md:pl-16 pr-12 py-4 md:py-5 bg-transparent border-2 border-transparent rounded-2xl focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 outline-none transition text-base md:text-lg font-bold text-gray-800"
-              />
+              <input type="text" value={query} onChange={(e) => setQuery(e.target.value)} placeholder={t('search_placeholder', 'レストラン名、メニュー、エリアで検索')} className="w-full pl-6 md:pl-8 pr-12 py-4 md:py-5 bg-transparent border-2 border-transparent rounded-2xl focus:border-orange-500 focus:ring-4 focus:ring-orange-500/10 outline-none transition text-base md:text-lg font-bold text-gray-800" />
               {query && <button onClick={() => setQuery('')} className="absolute right-4 md:right-5 top-1/2 transform -translate-y-1/2 text-gray-400 bg-gray-100 rounded-full w-8 h-8 flex items-center justify-center">✕</button>}
             </div>
             
-            <button 
-              onClick={toggleLocation}
-              disabled={isLocating}
-              className={`shadow-lg rounded-2xl px-6 py-4 md:py-5 font-black text-sm flex items-center justify-center gap-2 transition whitespace-nowrap ${userLocation ? 'bg-orange-600 text-white border-2 border-orange-600' : 'bg-white text-gray-700 border-2 border-transparent hover:border-gray-200'} disabled:opacity-50 disabled:cursor-wait`}
-            >
-              {isLocating ? <span className="animate-pulse">📍 {t('geo_loading', '取得中...')}</span> : userLocation ? <span>📍 {t('geo_active', '近い順で表示中 (解除)')}</span> : <span>📍 {t('geo_button', '現在地から探す')}</span>}
+            <button onClick={toggleLocation} disabled={isLocating} className={`shadow-lg rounded-2xl px-6 py-4 md:py-5 font-black text-sm flex items-center justify-center gap-2 transition whitespace-nowrap ${userLocation && !campusSort ? 'bg-orange-600 text-white border-2 border-orange-600' : 'bg-white text-gray-700 border-2 border-transparent hover:border-gray-200'} disabled:opacity-50 disabled:cursor-wait`}>
+              {isLocating ? <span className="animate-pulse">{t('geo_loading', '取得中...')}</span> : (userLocation && !campusSort) ? <span>{t('geo_active', '近い順で表示中 (解除)')}</span> : <span>{t('geo_button', '現在地から探す')}</span>}
             </button>
           </div>
           
@@ -312,7 +320,7 @@ export default function Home() {
 
           <div className="lg:hidden mt-4">
             <button onClick={() => setIsMobileFilterOpen(true)} className="w-full bg-white border-2 border-gray-200 text-gray-900 font-black py-4 rounded-2xl flex items-center justify-center gap-2 shadow-sm active:bg-gray-50 transition">
-              <span className="text-lg">⚙️</span> {t('filter_title', 'フィルター設定')}
+              <span>{t('filter_title', 'フィルター設定')}</span>
               {hasActiveFilters && <span className="bg-orange-600 text-white text-[10px] px-2 py-0.5 rounded-full ml-1 uppercase tracking-widest shadow-sm">Active</span>}
             </button>
           </div>
@@ -337,12 +345,48 @@ export default function Home() {
                 {hasActiveFilters && (
                    <button onClick={clearFilters} className="lg:hidden mb-6 w-full text-sm font-bold text-orange-600 py-3 bg-orange-50 rounded-xl border border-orange-100 active:bg-orange-100 transition">{t('btn_clear_filters', '条件をリセットする')}</button>
                 )}
-                <div className="mb-8">
+                
+                <div className="mb-6">
                   <label className="flex items-center cursor-pointer p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:border-orange-200 transition">
                     <input type="checkbox" checked={openNowOnly} onChange={(e) => setOpenNowOnly(e.target.checked)} className="h-6 w-6 lg:h-5 lg:w-5 accent-orange-600 cursor-pointer" />
-                    <span className="ml-4 lg:ml-3 font-black text-gray-800 text-base lg:text-sm">{t('filter_open_now', '🕒 営業中のみ')}</span>
+                    <span className="ml-4 lg:ml-3 font-black text-gray-800 text-base lg:text-sm">{t('filter_open_now', '営業中のみ')}</span>
                   </label>
                 </div>
+
+                <div className="mb-8">
+                  <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_campus', 'キャンパスからの距離')}</label>
+                  <div className="flex flex-wrap gap-2">
+                    {Object.entries(CAMPUSES).map(([key, campus]) => (
+                      <button
+                        key={key}
+                        onClick={() => { setCampusSort(campusSort === key ? '' : key); setUserLocation(null); setGeoError(''); }}
+                        className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${campusSort === key ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                      >
+                        {t(`tag_campus_${key}`, campus.name)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-8">
+                  <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_seats', '席数')}</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: 'small', label: '1-10 席' },
+                      { id: 'medium', label: '11-30 席' },
+                      { id: 'large', label: '31 席以上' }
+                    ].map(opt => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setSeatCapacity(seatCapacity === opt.id ? '' : opt.id)}
+                        className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${seatCapacity === opt.id ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                      >
+                        {t(`tag_seats_${opt.id}`, opt.label)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="mb-8">
                   <div className="flex justify-between items-center mb-4">
                     <label className="block text-xs font-bold text-gray-400 uppercase">{t('filter_budget', '予算')}</label>
@@ -359,11 +403,7 @@ export default function Home() {
                     <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{group.label}</label>
                     <div className="flex flex-wrap gap-2">
                       {group.options.map((opt) => (
-                        <button
-                          key={opt.id} 
-                          onClick={() => toggleArrayItem(group.setter, group.state, opt.name)}
-                          className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${group.state.includes(opt.name) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                        >
+                        <button key={opt.id} onClick={() => toggleArrayItem(group.setter, group.state, opt.name)} className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${group.state.includes(opt.name) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
                           {getTranslatedName(opt)}
                         </button>
                       ))}
@@ -376,12 +416,7 @@ export default function Home() {
                     <div className="flex flex-col gap-2">
                       {activeEvents.map((event) => (
                         <label key={event.id} className="flex items-center cursor-pointer p-4 lg:p-3 rounded-xl border border-gray-200 hover:bg-gray-50 transition">
-                          <input
-                            type="checkbox"
-                            checked={otherOptions.includes(event.name)}
-                            onChange={() => toggleArrayItem(setOtherOptions, otherOptions, event.name)}
-                            className="h-6 w-6 lg:h-5 lg:w-5 text-orange-600 rounded border-gray-300 cursor-pointer"
-                          />
+                          <input type="checkbox" checked={otherOptions.includes(event.name)} onChange={() => toggleArrayItem(setOtherOptions, otherOptions, event.name)} className="h-6 w-6 lg:h-5 lg:w-5 text-orange-600 rounded border-gray-300 cursor-pointer" />
                           <span className="ml-4 lg:ml-3 text-base lg:text-sm font-bold text-gray-800">{getTranslatedName(event)}</span>
                         </label>
                       ))}
@@ -407,7 +442,6 @@ export default function Home() {
             <div className={`transition-opacity duration-300 ${loading && page === 0 ? 'opacity-40' : 'opacity-100'}`}>
               {restaurants.length === 0 && !loading ? (
                 <div className="text-center py-24 bg-white rounded-3xl shadow-sm border border-gray-200 px-6">
-                  <div className="text-5xl mb-4">🍽️</div>
                   <p className="text-2xl text-gray-800 font-black mb-2">{t('label_no_results', '条件に一致するレストランが見つかりません。')}</p>
                   <p className="text-gray-500 font-medium text-sm mb-6">{t('not_found_desc', 'フィルターを変更するか、検索キーワードを調整してください。')}</p>
                   <button onClick={clearFilters} className="bg-gray-900 text-white font-bold px-8 py-3 rounded-xl">{t('btn_clear_filters', 'すべてクリア')}</button>
@@ -420,34 +454,29 @@ export default function Home() {
 
                     return (
                       <React.Fragment key={restaurant.id}>
-                        {/* NATIVE MOBILE INLINE ADS */}
                         {inlineAds.map(ad => (
-                          <a 
-                            key={`inline-ad-${ad.id}`} 
-                            href={ad.action_url || '#'} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            onClick={(e) => {
-                              if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); }
-                            }}
-                            className={`sm:hidden block w-full bg-white rounded-[2rem] shadow-sm border overflow-hidden group transition-all duration-300 ${selectedAdId === ad.id ? 'ring-4 ring-indigo-500 border-indigo-500 scale-[1.02]' : 'border-gray-200 hover:shadow-xl'}`}
-                          >
+                          <a key={`inline-ad-${ad.id}`} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => { if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); } }} className={`sm:hidden block w-full bg-white rounded-[2rem] shadow-sm border overflow-hidden group transition-all duration-300 ${selectedAdId === ad.id ? 'ring-4 ring-indigo-500 border-indigo-500 scale-[1.02]' : 'border-gray-200 hover:shadow-xl'}`}>
                             <div className="relative h-48 w-full overflow-hidden">
                                <img src={ad.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt="Sponsored" />
-                               <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-sm">Ad</div>
+                               <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-sm">{t('ad_label', 'Ad')}</div>
                             </div>
                             <div className="p-5 flex items-center justify-between bg-white">
                               <div className="flex flex-col">
-                                <span className="font-black text-lg text-gray-900">Featured Partner</span>
-                                <span className="text-xs font-bold text-gray-400 mt-0.5">Tap to view details</span>
+                                <span className="font-black text-lg text-gray-900">{t('ad_partner_title', 'Featured Partner')}</span>
+                                <span className="text-xs font-bold text-gray-400 mt-0.5">{t('ad_view_details', 'Tap to view details')}</span>
                               </div>
-                              <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">↗</div>
+                              <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">→</div>
                             </div>
                           </a>
                         ))}
                         
                         <div ref={isLast ? lastElementRef : null}>
-                          <RestaurantCard restaurant={restaurant} activeEvents={activeEvents} userLocation={userLocation} />
+                          <RestaurantCard 
+                            restaurant={restaurant} 
+                            activeEvents={activeEvents} 
+                            userLocation={userLocation} 
+                            activeFilters={{ seatCapacity, campusSort }}
+                          />
                         </div>
                       </React.Fragment>
                     );
@@ -457,37 +486,27 @@ export default function Home() {
               
               {loading && page > 0 && (
                 <div className="w-full text-center py-8">
-                  <span className="text-orange-500 font-bold text-sm animate-pulse">Loading more...</span>
+                  <span className="text-orange-500 font-bold text-sm animate-pulse">{t('loading_more', 'Loading more...')}</span>
                 </div>
               )}
             </div>
           </main>
         </div>
 
-        {/* NATIVE MOBILE BOTTOM ADS */}
         {bottomAds.length > 0 && (
           <div className="w-full max-w-3xl mx-auto px-4 mt-4">
             {bottomAds.map(ad => (
-              <a 
-                key={ad.id} 
-                href={ad.action_url || '#'} 
-                target="_blank" 
-                rel="noopener noreferrer"
-                onClick={(e) => {
-                  if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); }
-                }}
-                className={`lg:hidden block w-full bg-white rounded-[2rem] shadow-sm border overflow-hidden mb-6 group transition-all duration-300 ${selectedAdId === ad.id ? 'ring-4 ring-indigo-500 border-indigo-500 scale-[1.02]' : 'border-gray-200 hover:shadow-xl'}`}
-              >
+              <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => { if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); } }} className={`lg:hidden block w-full bg-white rounded-[2rem] shadow-sm border overflow-hidden mb-6 group transition-all duration-300 ${selectedAdId === ad.id ? 'ring-4 ring-indigo-500 border-indigo-500 scale-[1.02]' : 'border-gray-200 hover:shadow-xl'}`}>
                 <div className="relative h-48 w-full overflow-hidden">
                   <img src={ad.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt="Sponsored" />
-                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-sm">Sponsored</div>
+                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-sm">{t('ad_sponsored_label', 'Sponsored')}</div>
                 </div>
                 <div className="p-5 flex items-center justify-between">
                   <div className="flex flex-col">
-                    <span className="font-black text-lg text-gray-900">Discover More</span>
-                    <span className="text-xs font-bold text-gray-400 mt-0.5">Tap to explore</span>
+                    <span className="font-black text-lg text-gray-900">{t('ad_discover_title', 'Discover More')}</span>
+                    <span className="text-xs font-bold text-gray-400 mt-0.5">{t('ad_discover_desc', 'Tap to explore')}</span>
                   </div>
-                  <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">↗</div>
+                  <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">→</div>
                 </div>
               </a>
             ))}

@@ -14,16 +14,10 @@ import UserManagement from './UserManagement';
 
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authChecking, setAuthChecking] = useState(true);
-  const [currentUserProfile, setCurrentUserProfile] = useState<any>(null);
-  
+  const [authChecking, setAuthChecking] = useState(true); // Prevents login screen flash
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
-  
-  const [showPasswordModal, setShowPasswordModal] = useState(false);
-  const [newPassword, setNewPassword] = useState('');
-  const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
   
   const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'categories' | 'translations' | 'ad_studio' | 'users'>('directory');
   const [loading, setLoading] = useState(true);
@@ -51,81 +45,41 @@ export default function AdminDashboard() {
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
-      
-      if (session?.user) {
-        setIsAuthenticated(true);
-        const { data: profile } = await supabase.from('user_profiles').select('*').eq('id', session.user.id).single();
-        
-        let activeProfile = profile;
-        
-        if (!activeProfile) {
-           activeProfile = { 
-             id: session.user.id, 
-             email: session.user.email, 
-             role: 'admin', 
-             allowed_tabs: ['directory', 'pending', 'categories', 'translations', 'ad_studio', 'users'] 
-           };
-           await supabase.from('user_profiles').insert([activeProfile]);
-        }
-
-        setCurrentUserProfile(activeProfile);
-        
-        if (activeProfile && activeProfile.role !== 'admin') {
-          const allowed = activeProfile.allowed_tabs || [];
-          if (allowed.length > 0 && !allowed.includes('directory')) {
-            setActiveTab(allowed[0]);
-          }
-        }
-      } else {
-        setIsAuthenticated(false);
-        setCurrentUserProfile(null);
-      }
+      setIsAuthenticated(!!session);
       setAuthChecking(false);
     };
     
     checkSession();
 
+    // Listen for auth state changes (login, logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        setIsAuthenticated(false);
-        setCurrentUserProfile(null);
-      } else {
-        checkSession(); 
-      }
+      setIsAuthenticated(!!session);
     });
 
     return () => subscription.unsubscribe();
   }, []);
 
-  // FIXED: Using currentUserProfile?.id prevents object reference loops from triggering refetches
+  // Fetch data only if authenticated
   useEffect(() => { 
-    if (isAuthenticated && currentUserProfile?.id) fetchAllData(); 
-  }, [isAuthenticated, currentUserProfile?.id]);
+    if (isAuthenticated) fetchAllData(); 
+  }, [isAuthenticated]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
-    const { error } = await supabase.auth.signInWithPassword({ email: emailInput, password: passwordInput });
-    if (error) setLoginError(error.message);
+    
+    const { error } = await supabase.auth.signInWithPassword({
+      email: emailInput,
+      password: passwordInput,
+    });
+
+    if (error) {
+      setLoginError(error.message);
+    }
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-  };
-
-  const handleUpdatePassword = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsUpdatingPassword(true);
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-    
-    if (error) {
-      alert(`Failed to update password: ${error.message}`);
-    } else {
-      alert('✅ Password updated successfully!');
-      setShowPasswordModal(false);
-      setNewPassword('');
-    }
-    setIsUpdatingPassword(false);
   };
 
   const fetchAllData = async () => {
@@ -152,7 +106,10 @@ export default function AdminDashboard() {
   const batchUpdateCoordinates = async () => {
     const allRests = [...liveRestaurants, ...pendingSubmissions];
     const targets = allRests.filter(r => !r.lat || !r.lng);
-    if (targets.length === 0) return alert("All restaurants already have coordinates!");
+    if (targets.length === 0) {
+      alert("All restaurants already have coordinates!");
+      return;
+    }
     if (!confirm(`Found ${targets.length} restaurants missing coordinates. Start batch update?`)) return;
     setBatchStatus({ total: targets.length, current: 0, isRunning: true });
     for (let i = 0; i < targets.length; i++) {
@@ -160,11 +117,15 @@ export default function AdminDashboard() {
       setBatchStatus(prev => prev ? { ...prev, current: i + 1 } : null);
       if (rest.address) {
         const { lat, lng } = await geocodeAddress(rest.address);
-        if (lat && lng) await supabase.from('restaurants').update({ lat, lng }).eq('id', rest.id);
+        if (lat && lng) {
+          await supabase.from('restaurants').update({ lat, lng }).eq('id', rest.id);
+        }
       }
       await new Promise(r => setTimeout(r, 200)); 
     }
-    setBatchStatus(null); alert("Batch update complete!"); fetchAllData();
+    setBatchStatus(null);
+    alert("Batch update complete!");
+    fetchAllData();
   };
 
   const updateBaseTagName = async (id: string, oldName: string, newName: string, type: string) => {
@@ -173,6 +134,7 @@ export default function AdminDashboard() {
     await supabase.from('filter_options').update({ name: safeNewName }).eq('id', id);
     const dbField = getDbField(type);
     const allRests = [...liveRestaurants, ...pendingSubmissions];
+    
     const updatePromises = allRests.map(async (rest) => {
       const currentArray = rest[dbField] || [];
       if (currentArray.includes(oldName)) {
@@ -180,19 +142,25 @@ export default function AdminDashboard() {
         return supabase.from('restaurants').update({ [dbField]: newArray }).eq('id', rest.id);
       }
     }).filter(Boolean);
-    if (updatePromises.length > 0) await Promise.all(updatePromises);
+    if (updatePromises.length > 0) {
+      await Promise.all(updatePromises);
+    }
     fetchAllData();
   };
 
   const openManageCategory = (categoryName: string) => {
     const allRests = [...liveRestaurants, ...pendingSubmissions];
     const participants = allRests.filter(r => (r.other_options || []).includes(categoryName)).map(r => r.id);
-    setCategoryParticipants(participants); setManagingCategory(categoryName);
+    setCategoryParticipants(participants);
+    setManagingCategory(categoryName);
   };
 
   const toggleParticipant = (restId: string) => {
-    if (categoryParticipants.includes(restId)) setCategoryParticipants(categoryParticipants.filter(id => id !== restId));
-    else setCategoryParticipants([...categoryParticipants, restId]);
+    if (categoryParticipants.includes(restId)) {
+      setCategoryParticipants(categoryParticipants.filter(id => id !== restId));
+    } else {
+      setCategoryParticipants([...categoryParticipants, restId]);
+    }
   };
 
   const saveCategoryParticipants = async () => {
@@ -208,7 +176,10 @@ export default function AdminDashboard() {
       }
     }).filter(Boolean);
     await Promise.all(updatePromises);
-    setSavingParticipants(false); setManagingCategory(null); alert('Event participants updated!'); fetchAllData();
+    setSavingParticipants(false);
+    setManagingCategory(null);
+    alert('Event participants updated!');
+    fetchAllData();
   };
 
   const updateStatus = async (restaurant: any, newStatus: string) => {
@@ -219,7 +190,8 @@ export default function AdminDashboard() {
         const { lat, lng } = await geocodeAddress(restaurant.address);
         if (lat && lng) { updates.lat = lat; updates.lng = lng; }
       }
-      await supabase.from('restaurants').update(updates).eq('id', restaurant.id); fetchAllData();
+      await supabase.from('restaurants').update(updates).eq('id', restaurant.id);
+      fetchAllData();
     }
   };
 
@@ -228,23 +200,38 @@ export default function AdminDashboard() {
       setLiveRestaurants(prev => prev.filter(r => r.id !== id));
       setPendingSubmissions(prev => prev.filter(r => r.id !== id));
       const { error } = await supabase.from('restaurants').delete().eq('id', id);
-      if (error) { console.error("Delete Error:", error); alert(`Failed to delete "${title}"\nError: ${error.message}`); fetchAllData(); }
+      if (error) {
+        console.error("Delete Error:", error);
+        alert(`Failed to delete "${title}" from the database.\nError: ${error.message}`);
+        fetchAllData(); 
+      }
     }
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]; if (!file) return; setUploadingImage(true);
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingImage(true);
     try {
       const fileName = `cover-${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-]/g, '_')}`;
       const { error } = await supabase.storage.from('restaurant-images').upload(fileName, file);
       if (error) throw error;
       const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
-      setEditingData((prev: any) => prev ? { ...prev, image_url: publicData.publicUrl } : prev);
-    } catch (error: any) { alert(`Cover Upload Error:\n${error.message}`); } finally { setUploadingImage(false); e.target.value = ''; }
+      setEditingData((prev: any) => {
+        if (!prev) return prev;
+        return { ...prev, image_url: publicData.publicUrl };
+      });
+    } catch (error: any) {
+      alert(`Cover Image Upload Error:\n${error.message}`);
+    } finally {
+      setUploadingImage(false); e.target.value = '';
+    }
   };
 
   const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files; if (!files || files.length === 0) return; setUploadingImage(true);
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setUploadingImage(true);
     const newUrls: string[] = [];
     try {
       for (let i = 0; i < files.length; i++) {
@@ -255,14 +242,25 @@ export default function AdminDashboard() {
         const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
         newUrls.push(publicData.publicUrl);
       }
-      if (newUrls.length > 0) setEditingData((prev: any) => prev ? { ...prev, image_urls: [...(prev.image_urls || []), ...newUrls] } : prev);
-    } catch (error: any) { alert(`Storage Error:\n${error.message}`); } finally { setUploadingImage(false); e.target.value = ''; }
+      if (newUrls.length > 0) {
+        setEditingData((prev: any) => {
+          if (!prev) return prev;
+          const currentUrls = prev.image_urls || [];
+          return { ...prev, image_urls: [...currentUrls, ...newUrls] };
+        });
+      }
+    } catch (error: any) {
+      alert(`Storage Error:\n${error.message}`);
+    } finally {
+      setUploadingImage(false); e.target.value = ''; 
+    }
   };
 
   const removeGalleryImage = (index: number) => {
     setEditingData((prev: any) => {
       if (!prev?.image_urls) return prev;
-      const updated = [...prev.image_urls]; updated.splice(index, 1);
+      const updated = [...prev.image_urls];
+      updated.splice(index, 1);
       return { ...prev, image_urls: updated };
     });
   };
@@ -271,7 +269,9 @@ export default function AdminDashboard() {
     setEditingData((prev: any) => {
       if (!prev) return prev;
       const currentArray = prev[field] || [];
-      if (currentArray.includes(value)) return { ...prev, [field]: currentArray.filter((v: string) => v !== value) };
+      if (currentArray.includes(value)) {
+        return { ...prev, [field]: currentArray.filter((v: string) => v !== value) };
+      }
       return { ...prev, [field]: [...currentArray, value] };
     });
   };
@@ -280,7 +280,10 @@ export default function AdminDashboard() {
     let formattedHours = restaurant.operating_hours;
     if (formattedHours) {
       if (typeof formattedHours === 'string') {
-        try { const parsed = JSON.parse(formattedHours); formattedHours = Object.entries(parsed).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n'); } catch { /* Already text */ }
+        try {
+          const parsed = JSON.parse(formattedHours);
+          formattedHours = Object.entries(parsed).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
+        } catch { /* Already text */ }
       } else if (typeof formattedHours === 'object') {
         formattedHours = Object.entries(formattedHours).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
       }
@@ -289,7 +292,10 @@ export default function AdminDashboard() {
   };
 
   const saveEdits = async (currentData: any) => {
-    if (!currentData || !currentData.id) return alert("Error: Lost Restaurant ID.");
+    if (!currentData || !currentData.id) {
+      alert("Error: Lost Restaurant ID during session. Please refresh the page.");
+      return;
+    }
     setLoading(true);
     const { id, created_at, ...updates } = currentData;
     const allRests = [...liveRestaurants, ...pendingSubmissions];
@@ -298,18 +304,14 @@ export default function AdminDashboard() {
       const { lat, lng } = await geocodeAddress(updates.address);
       if (lat && lng) { updates.lat = lat; updates.lng = lng; }
     }
+    
     const { error } = await supabase.from('restaurants').update(updates).eq('id', id);
     setLoading(false);
     if (error) alert(`Database Error:\n${error.message}`);
     else { alert(`✅ Saved Successfully!`); setEditingData(null); fetchAllData(); }
   };
 
-  const hasAccess = (tabId: string) => {
-    if (!currentUserProfile) return false;
-    if (currentUserProfile.role === 'admin') return true;
-    return (currentUserProfile.allowed_tabs || []).includes(tabId);
-  };
-
+  // Prevent flash of login screen while checking session
   if (authChecking) {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-400 font-black tracking-widest">VERIFYING ACCESS...</div>;
   }
@@ -319,9 +321,26 @@ export default function AdminDashboard() {
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
         <form onSubmit={handleLogin} className="max-w-md w-full bg-white p-10 rounded-3xl shadow-xl border border-gray-200 text-center">
           <h1 className="text-3xl font-black mb-6 text-gray-900">CMS Access</h1>
+          
           {loginError && <div className="mb-4 text-xs font-bold text-red-500 bg-red-50 p-3 rounded-lg">{loginError}</div>}
-          <input type="email" value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="Admin Email" autoFocus required className="w-full px-5 py-4 bg-gray-50 border rounded-xl mb-4 text-center tracking-widest outline-none focus:ring-2 focus:ring-orange-500" />
-          <input type="password" value={passwordInput} onChange={(e) => setPasswordInput(e.target.value)} placeholder="Password" required className="w-full px-5 py-4 bg-gray-50 border rounded-xl mb-6 text-center tracking-widest outline-none focus:ring-2 focus:ring-orange-500" />
+          
+          <input 
+            type="email" 
+            value={emailInput} 
+            onChange={(e) => setEmailInput(e.target.value)} 
+            placeholder="Admin Email" 
+            autoFocus 
+            required
+            className="w-full px-5 py-4 bg-gray-50 border rounded-xl mb-4 text-center tracking-widest outline-none focus:ring-2 focus:ring-orange-500" 
+          />
+          <input 
+            type="password" 
+            value={passwordInput} 
+            onChange={(e) => setPasswordInput(e.target.value)} 
+            placeholder="Password" 
+            required
+            className="w-full px-5 py-4 bg-gray-50 border rounded-xl mb-6 text-center tracking-widest outline-none focus:ring-2 focus:ring-orange-500" 
+          />
           <button type="submit" className="w-full bg-gray-900 text-white font-bold py-4 rounded-xl hover:bg-black transition">Login</button>
         </form>
       </div>
@@ -332,63 +351,46 @@ export default function AdminDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 relative min-h-screen pb-20">
-      
-      {/* FIXED: Non-destructive Global Loading Indicator */}
-      {loading && (
-        <div className={`fixed z-[9999] flex items-center justify-center pointer-events-none transition-opacity duration-300 ${liveRestaurants.length === 0 ? 'inset-0 bg-gray-50' : 'bottom-10 right-10'}`}>
-          <div className={`font-black tracking-widest flex items-center gap-3 ${liveRestaurants.length === 0 ? 'text-gray-400 text-xl animate-pulse' : 'bg-gray-900 text-white px-6 py-4 rounded-full shadow-2xl text-xs pointer-events-auto'}`}>
-            {liveRestaurants.length > 0 && <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></span>}
-            {liveRestaurants.length === 0 ? 'CONNECTING TO DATABASE...' : 'SYNCING DATABASE...'}
-          </div>
-        </div>
-      )}
-
       <div className="flex justify-between items-end mb-8 border-b border-gray-200 pb-4">
         <div>
           <h1 className="text-4xl font-black text-gray-900 tracking-tight">Admin CMS</h1>
           <button 
-            onClick={batchUpdateCoordinates} disabled={batchStatus?.isRunning}
-            className="mt-2 text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50 pointer-events-auto"
+            onClick={batchUpdateCoordinates} 
+            disabled={batchStatus?.isRunning}
+            className="mt-2 text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50"
           >
-            {batchStatus?.isRunning ? `⚙️ Syncing... (${batchStatus.current}/${batchStatus.total})` : "📍 Missing Coordinates Sync"}
+            {batchStatus?.isRunning 
+              ? `⚙️ Syncing... (${batchStatus.current}/${batchStatus.total})` 
+              : "📍 Missing Coordinates Sync"}
           </button>
         </div>
-        <div className="flex flex-col items-end gap-2">
-          <span className="text-xs font-bold text-gray-400">
-            {currentUserProfile?.email} ({currentUserProfile?.role?.replace('_', ' ')})
-          </span>
-          <div className="flex gap-4 items-center">
-            <button onClick={() => setShowPasswordModal(true)} className="text-xs font-bold text-blue-500 hover:text-blue-700 transition">
-              Set/Change Password
-            </button>
-            <button onClick={handleLogout} className="text-xs font-bold text-red-400 hover:text-red-600 transition">
-              Logout
-            </button>
-          </div>
-        </div>
+        <button onClick={handleLogout} className="text-sm font-bold text-gray-400 hover:text-red-500 transition">Logout</button>
       </div>
-      
       <div className="flex flex-wrap gap-3 mb-10">
-        {hasAccess('directory') && <button onClick={() => setActiveTab('directory')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'directory' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Directory ({liveRestaurants.length})</button>}
-        {hasAccess('pending') && <button onClick={() => setActiveTab('pending')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'pending' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Pending ({pendingSubmissions.length})</button>}
-        {hasAccess('categories') && <button onClick={() => setActiveTab('categories')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'categories' ? 'bg-purple-600 text-white shadow-lg' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}>⚙️ Category Hub</button>}
-        {hasAccess('translations') && <button onClick={() => setActiveTab('translations')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'translations' ? 'bg-blue-600 text-white shadow-lg' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>🌐 Translations</button>}
-        {hasAccess('ad_studio') && <button onClick={() => setActiveTab('ad_studio')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'ad_studio' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>📢 Ad Studio</button>}
-        {hasAccess('users') && <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>👥 Team</button>}
+        <button onClick={() => setActiveTab('directory')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'directory' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Directory ({liveRestaurants.length})</button>
+        <button onClick={() => setActiveTab('pending')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'pending' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Pending ({pendingSubmissions.length})</button>
+        <button onClick={() => setActiveTab('categories')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'categories' ? 'bg-purple-600 text-white shadow-lg' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}>⚙️ Category Hub</button>
+        <button onClick={() => setActiveTab('translations')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'translations' ? 'bg-blue-600 text-white shadow-lg' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>🌐 Translations</button>
+        <button onClick={() => setActiveTab('ad_studio')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'ad_studio' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>📢 Ad Studio</button>
+        <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>👥 Team</button>
       </div>
       
-      {/* FIXED: Elements now safely stay mounted to prevent the iframe reset loop */}
-      <div className={`transition-opacity duration-300 ${loading && liveRestaurants.length === 0 ? 'opacity-0' : 'opacity-100'}`}>
-          {activeTab === 'users' && hasAccess('users') && <UserManagement />}
-          {activeTab === 'ad_studio' && hasAccess('ad_studio') && <AdStudio adCampaigns={adCampaigns} setAdCampaigns={setAdCampaigns} liveRestaurants={liveRestaurants} activeTab={activeTab} />}
-          {activeTab === 'translations' && hasAccess('translations') && <Translations appLanguages={appLanguages} setAppLanguages={setAppLanguages} uiTranslations={uiTranslations} setUiTranslations={setUiTranslations} masterFilters={masterFilters} setMasterFilters={setMasterFilters} liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} updateBaseTagName={updateBaseTagName} />}
-          {activeTab === 'categories' && hasAccess('categories') && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
-          {activeTab === 'directory' && hasAccess('directory') && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
-          {activeTab === 'pending' && hasAccess('pending') && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
-      </div>
+      {loading ? (
+         <div className="text-center py-20 animate-pulse text-gray-400 font-black text-xl tracking-widest">CONNECTING TO DATABASE...</div>
+      ) : (
+        <>
+          {activeTab === 'users' && <UserManagement />}
+          {activeTab === 'ad_studio' && <AdStudio adCampaigns={adCampaigns} setAdCampaigns={setAdCampaigns} liveRestaurants={liveRestaurants} activeTab={activeTab} />}
+          {activeTab === 'translations' && <Translations appLanguages={appLanguages} setAppLanguages={setAppLanguages} uiTranslations={uiTranslations} setUiTranslations={setUiTranslations} masterFilters={masterFilters} setMasterFilters={setMasterFilters} liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} updateBaseTagName={updateBaseTagName} />}
+          {activeTab === 'categories' && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
+          {activeTab === 'directory' && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
+          {activeTab === 'pending' && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
+        </>
+      )}
 
+      {/* Global Modals Overlays */}
       {managingCategory && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 pointer-events-auto">
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col relative overflow-hidden">
             <div className="bg-purple-600 p-8 flex justify-between items-center text-white">
               <div>
@@ -421,7 +423,7 @@ export default function AdminDashboard() {
       )}
 
       {editingData && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4 pointer-events-auto">
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col relative">
             <div className="sticky top-0 bg-white/90 backdrop-blur p-8 border-b border-gray-100 z-10 flex flex-col gap-4">
               <div className="flex justify-between items-center">
@@ -516,35 +518,6 @@ export default function AdminDashboard() {
                 SAVE ALL CHANGES
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {showPasswordModal && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[200] flex items-center justify-center p-4 pointer-events-auto">
-          <div className="bg-white rounded-[32px] shadow-2xl w-full max-w-md p-8 animate-in zoom-in-95 duration-200">
-            <h2 className="text-2xl font-black text-gray-900 mb-2">Update Password</h2>
-            <p className="text-gray-500 text-sm font-bold mb-6">If you logged in via an invite link, set your permanent password here.</p>
-            
-            <form onSubmit={handleUpdatePassword} className="space-y-4">
-              <input 
-                type="password" 
-                value={newPassword} 
-                onChange={(e) => setNewPassword(e.target.value)} 
-                placeholder="New Password (min 6 chars)" 
-                className="w-full p-4 border border-gray-200 rounded-2xl font-bold outline-none focus:ring-2 focus:ring-blue-500" 
-                required
-                minLength={6}
-              />
-              <div className="flex gap-3 pt-2">
-                <button type="button" onClick={() => setShowPasswordModal(false)} className="flex-1 bg-gray-100 text-gray-600 font-black py-4 rounded-xl hover:bg-gray-200 transition">
-                  Cancel
-                </button>
-                <button type="submit" disabled={isUpdatingPassword} className="flex-1 bg-blue-600 text-white font-black py-4 rounded-xl hover:bg-blue-700 transition disabled:opacity-50">
-                  {isUpdatingPassword ? 'Saving...' : 'Save Password'}
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}

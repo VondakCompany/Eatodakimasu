@@ -6,11 +6,13 @@ import { useLanguage } from '@/contexts/LanguageContext';
 export default function RestaurantCard({ 
   restaurant, 
   activeEvents = [],
-  userLocation 
+  userLocation,
+  activeFilters = {}
 }: { 
-  restaurant: any, 
-  activeEvents?: any[],
-  userLocation?: { lat: number, lng: number } | null 
+  restaurant: any; 
+  activeEvents?: any[];
+  userLocation?: { lat: number; lng: number } | null;
+  activeFilters?: { seatCapacity?: string; campusSort?: string; };
 }) {
   const { currentLang, t } = useLanguage();
 
@@ -22,19 +24,18 @@ export default function RestaurantCard({
     ? restaurant.description 
     : (restaurant.translations?.[currentLang]?.description || restaurant.description);
 
-  // ✅ SAFELY CALCULATE DISTANCE LOCALLY
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-    const R = 6371e3; // Earth's radius in meters
+    const R = 6371e3; 
     const φ1 = lat1 * Math.PI/180;
     const φ2 = lat2 * Math.PI/180;
     const Δφ = (lat2-lat1) * Math.PI/180;
     const Δλ = (lon2-lon1) * Math.PI/180;
     const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    return R * c; 
+    const straightLineDist = R * c; 
+    return straightLineDist * 1.3; 
   };
 
-  // Prioritize pre-calculated distance, fallback to local math if location exists
   let finalDistance = restaurant.dist_meters;
   if (finalDistance === undefined && userLocation && restaurant.lat && restaurant.lng) {
     finalDistance = calculateDistance(userLocation.lat, userLocation.lng, restaurant.lat, restaurant.lng);
@@ -45,35 +46,63 @@ export default function RestaurantCard({
     return `${(meters / 1000).toFixed(1)}km`;
   };
 
+  const walkFromUser = finalDistance !== undefined && !isNaN(finalDistance) ? Math.max(1, Math.ceil(finalDistance / 80)) : null;
+  const walkFromCampus = restaurant.campus_dist_meters ? Math.max(1, Math.ceil(restaurant.campus_dist_meters / 80)) : null;
+
   return (
     <Link href={`/restaurant/${restaurant.id}`} className="block group h-full">
       <div className="bg-white rounded-[32px] overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 h-full flex flex-col relative transform group-hover:-translate-y-1">
         
-        {/* ✅ DISTANCE BADGE */}
-        {finalDistance !== undefined && finalDistance !== null && !isNaN(finalDistance) && (
-          <div className="absolute top-4 right-4 bg-white/95 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-lg flex items-center gap-1.5 z-10 border border-gray-100/50">
-            <span className="text-orange-500 text-sm">📍</span>
-            <span className="font-black text-gray-900 text-sm tracking-tight">{formatDistance(finalDistance)}</span>
-          </div>
-        )}
-
-        {/* IMAGE CONTAINER */}
         <div className="relative h-56 w-full bg-gray-100 overflow-hidden">
           <img 
             src={restaurant.image_url || '/images/default.jpg'} 
             alt={displayTitle} 
             className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 opacity-100 transition-opacity duration-300"></div>
           
-          {restaurant.participates_in_event && (
-             <div className="absolute bottom-4 left-4 bg-pink-500 text-white text-[10px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-md">
-               Event
-             </div>
+          <div className="absolute top-3 right-3 flex flex-col items-end gap-1.5 z-10 pl-12">
+            {userLocation && finalDistance !== undefined && !isNaN(finalDistance) && (
+              <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 border border-gray-100/50">
+                <span className="text-orange-500 font-bold text-[10px]">{t('badge_distance', '距離:')}</span>
+                <span className="font-black text-gray-900 text-[10px] tracking-tight">{formatDistance(finalDistance)}</span>
+                <span className="text-gray-300 mx-0.5">|</span>
+                <span className="text-orange-500 font-bold text-[10px]">{t('badge_walk', '徒歩:')}</span>
+                <span className="font-black text-gray-900 text-[10px] tracking-tight">{t('badge_min', '{{min}}分', { min: walkFromUser })}</span>
+              </div>
+            )}
+
+            {activeFilters?.campusSort && walkFromCampus !== null && restaurant.campus_name && (
+              <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 border border-gray-100/50">
+                <span className="text-indigo-500 font-bold text-[10px]">{t('badge_campus', 'キャンパス:')}</span>
+                <span className="font-black text-gray-900 text-[10px] tracking-tight">
+                  {t('badge_from_campus', '{{campus}}から {{min}}分', { campus: t(`tag_campus_${activeFilters.campusSort}`, restaurant.campus_name), min: walkFromCampus })}
+                </span>
+              </div>
+            )}
+
+            {activeFilters?.seatCapacity && restaurant.total_seats && (
+              <div className="bg-white/95 backdrop-blur-md px-2.5 py-1.5 rounded-xl shadow-lg flex items-center gap-1.5 border border-gray-100/50">
+                <span className="text-emerald-500 font-bold text-[10px]">{t('badge_seats', '席数:')}</span>
+                <span className="font-black text-gray-900 text-[10px] tracking-tight">{restaurant.total_seats}</span>
+              </div>
+            )}
+          </div>
+
+          {restaurant.other_options && restaurant.other_options.length > 0 && activeEvents && (
+            <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5 z-10 pr-4">
+              {restaurant.other_options.map((catName: string) => {
+                const isConstant = activeEvents.find(e => e.name === catName)?.is_constant;
+                return (
+                  <div key={catName} className={`px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1 border ${isConstant ? 'bg-slate-100/95 border-slate-200 text-slate-800' : 'bg-purple-100/95 border-purple-200 text-purple-800'}`}>
+                    <span className="font-black text-[10px] tracking-tight">{t(`tag_${catName}`, catName)}</span>
+                  </div>
+                )
+              })}
+            </div>
           )}
         </div>
 
-        {/* TEXT CONTENT */}
         <div className="p-6 flex flex-col flex-grow">
           <div className="flex justify-between items-start mb-2 gap-2">
             <h3 className="text-xl font-black text-gray-900 leading-tight group-hover:text-orange-600 transition-colors line-clamp-2">
@@ -104,22 +133,6 @@ export default function RestaurantCard({
             </span>
           </div>
         </div>
-
-        {/* EVENT BADGE STRIP */}
-        {restaurant.other_options && restaurant.other_options.length > 0 && activeEvents && (
-          <div className="bg-purple-50 px-6 py-3 border-t border-purple-100">
-            <div className="flex flex-wrap gap-2">
-              {restaurant.other_options.map((catName: string) => {
-                const isConstant = activeEvents.find(e => e.name === catName)?.is_constant;
-                return (
-                  <span key={catName} className={`text-[10px] font-black px-2 py-1 rounded-md ${isConstant ? 'bg-slate-200 text-slate-700' : 'bg-purple-200 text-purple-800'}`}>
-                    🎉 {t(`tag_${catName}`, catName)}
-                  </span>
-                )
-              })}
-            </div>
-          </div>
-        )}
       </div>
     </Link>
   );
