@@ -17,6 +17,24 @@ const CAMPUSES = {
 export default function Home() {
   const { currentLang, t } = useLanguage();
 
+  // PRE-REGISTER HIDDEN UI STRINGS SO AUTODETECT CATCHES THEM INSTANTLY
+  if (process.env.NODE_ENV === 'development') {
+    t('ad_sticky_title', 'Special Promo');
+    t('ad_sponsored_label', 'Sponsored');
+    t('ad_open_btn', 'Open');
+    t('ad_featured_title', 'Featured Content');
+    t('ad_featured_desc', 'Tap to explore');
+    t('ad_label', 'Ad');
+    t('ad_partner_title', 'Featured Partner');
+    t('ad_view_details', 'Tap to view details');
+    t('loading_more', 'Loading more...');
+    t('filter_budget', '予算');
+    t('filter_cuisine', 'ジャンル');
+    t('filter_dietary', '食事制限');
+    t('filter_payment', '決済方法');
+    t('filter_events', 'イベント・その他');
+  }
+
   const [query, setQuery] = useState('');
   const [price, setPrice] = useState(3000);
   const [cuisines, setCuisines] = useState<string[]>([]);
@@ -354,7 +372,7 @@ export default function Home() {
                 </div>
 
                 <div className="mb-8">
-                  <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_campus', 'キャンパスからの距離')}</label>
+                  <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_campus', 'キャンパス')}</label>
                   <div className="flex flex-wrap gap-2">
                     {Object.entries(CAMPUSES).map(([key, campus]) => (
                       <button
@@ -394,6 +412,7 @@ export default function Home() {
                   </div>
                   <input type="range" min="500" max="3000" step="100" value={price} onChange={(e) => setPrice(parseInt(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg accent-orange-600 cursor-pointer" />
                 </div>
+                
                 {[
                   { label: t('filter_cuisine', 'ジャンル'), state: cuisines, setter: setCuisines, options: dbCuisines },
                   { label: t('filter_dietary', '食事制限'), state: restrictions, setter: setRestrictions, options: dbRestrictions },
@@ -410,6 +429,7 @@ export default function Home() {
                     </div>
                   </div>
                 ))}
+                
                 {activeEvents.length > 0 && (
                   <div className="mb-12 lg:mb-2">
                     <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_events', 'イベント・その他')}</label>

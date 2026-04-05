@@ -11,7 +11,7 @@ export default function Translations({
   masterFilters,
   setMasterFilters,
   liveRestaurants,
-  pendingSubmissions, // Kept in props so App.tsx doesn't complain, but we won't use it here
+  pendingSubmissions, 
   fetchAllData,
   updateBaseTagName
 }: any) {
@@ -26,7 +26,6 @@ export default function Translations({
 
   const translationLangs = appLanguages.filter((lang: any) => lang.code !== 'ja');
   
-  // Only use live (approved) restaurants for translations
   const translatableRestaurants = liveRestaurants;
   const selectedTransRestData = translatableRestaurants.find((r: any) => r.id === selectedTransRestId);
 
@@ -59,7 +58,6 @@ export default function Translations({
       return;
     }
 
-    // Tally up all existing data for this language
     const uiCount = uiTranslations.filter((t: any) => t.values && t.values[code]).length;
     const tagCount = masterFilters.filter((f: any) => f.translations && f.translations[code]).length;
     const restCount = translatableRestaurants.filter((r: any) => r.translations && r.translations[code] && Object.keys(r.translations[code]).length > 0).length;
@@ -120,6 +118,7 @@ export default function Translations({
         <button onClick={() => setTransSubTab('tags')} className={`pb-2 px-2 font-black border-b-4 transition ${transSubTab === 'tags' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-300'}`}>Master Tags</button>
         <button onClick={() => setTransSubTab('restaurants')} className={`pb-2 px-2 font-black border-b-4 transition ${transSubTab === 'restaurants' ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-300'}`}>Restaurant Content</button>
       </div>
+      
       {transSubTab === 'global' && (
         <div className="space-y-8">
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
@@ -146,6 +145,7 @@ export default function Translations({
               ))}
             </div>
           </div>
+          
           <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200 overflow-x-auto">
             <h2 className="text-2xl font-black mb-4">UI Dictionary</h2>
             <table className="w-full text-left">
@@ -181,13 +181,14 @@ export default function Translations({
           </div>
         </div>
       )}
+
       {transSubTab === 'tags' && (
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200 overflow-x-auto animate-in fade-in">
           <h2 className="text-2xl font-black mb-4">Tag Translations</h2>
           <table className="w-full text-left">
             <thead>
               <tr className="border-b-2">
-                <th className="p-3 text-xs font-black text-gray-400 uppercase w-32">Type</th>
+                <th className="p-3 text-xs font-black text-gray-400 uppercase w-40">Category Type</th>
                 <th className="p-3 text-xs font-black text-gray-400 uppercase">Tag (JA)</th>
                 {translationLangs.map((l: any) => (
                   <th key={l.code} className="p-3 text-xs font-black text-blue-600 uppercase">{l.name}</th>
@@ -197,7 +198,25 @@ export default function Translations({
             <tbody>
               {masterFilters.map((filter: any) => (
                 <tr key={filter.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                  <td className="p-3 text-xs font-bold text-gray-400 uppercase tracking-widest">{filter.type}</td>
+                  <td className="p-3">
+                    {/* INTERACTIVE DROPDOWN: Allows user to fix broken migration types instantly */}
+                    <select 
+                      value={filter.type || 'other'}
+                      onChange={async (e) => {
+                        const newType = e.target.value;
+                        setMasterFilters(masterFilters.map((f: any) => f.id === filter.id ? { ...f, type: newType } : f));
+                        await supabase.from('filter_options').update({ type: newType }).eq('id', filter.id);
+                      }}
+                      className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold uppercase bg-white text-gray-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer transition-all"
+                    >
+                      <option value="cuisine">Cuisine</option>
+                      <option value="restriction">Restriction</option>
+                      <option value="payment">Payment</option>
+                      <option value="campus">Campus</option>
+                      <option value="seats">Seats</option>
+                      <option value="other">Other / Event</option>
+                    </select>
+                  </td>
                   <td className="p-3">
                     <input 
                       type="text" 
@@ -218,7 +237,6 @@ export default function Translations({
                         onBlur={async (e) => { 
                           const ut = { ...filter.translations, [l.code]: e.target.value }; 
                           await supabase.from('filter_options').update({ translations: ut }).eq('id', filter.id); 
-                          fetchAllData(); 
                         }} 
                         className="w-full p-3 border border-gray-100 rounded-xl text-sm focus:border-blue-400 outline-none" 
                       />
@@ -230,6 +248,7 @@ export default function Translations({
           </table>
         </div>
       )}
+
       {transSubTab === 'restaurants' && (
         <div className="bg-white p-8 rounded-3xl shadow-sm border border-gray-200">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
