@@ -11,6 +11,8 @@ import CategoryHub from './CategoryHub';
 import Translations from './Translations';
 import AdStudio from './AdStudio';
 import UserManagement from './UserManagement';
+// 1. IMPORT THE NEW EDITOR COMPONENT
+import RegistrationEditor from './RegistrationEditor';
 
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -19,7 +21,8 @@ export default function AdminDashboard() {
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   
-  const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'categories' | 'translations' | 'ad_studio' | 'users'>('directory');
+  // 2. ADD 'registration' TO THE ALLOWED TABS
+  const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'categories' | 'translations' | 'ad_studio' | 'users' | 'registration'>('directory');
   const [loading, setLoading] = useState(true);
   
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
@@ -373,6 +376,8 @@ export default function AdminDashboard() {
         <button onClick={() => setActiveTab('translations')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'translations' ? 'bg-blue-600 text-white shadow-lg' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>🌐 Translations</button>
         <button onClick={() => setActiveTab('ad_studio')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'ad_studio' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>📢 Ad Studio</button>
         <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>👥 Team</button>
+        {/* 3. ADD THE BUTTON FOR THE REGISTRATION TAB */}
+        <button onClick={() => setActiveTab('registration')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'registration' ? 'bg-amber-600 text-white shadow-lg' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'}`}>📝 Form Builder</button>
       </div>
       
       {loading ? (
@@ -385,6 +390,8 @@ export default function AdminDashboard() {
           {activeTab === 'categories' && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
           {activeTab === 'directory' && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
           {activeTab === 'pending' && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
+          {/* 4. RENDER THE COMPONENT WHEN THE TAB IS ACTIVE */}
+          {activeTab === 'registration' && <RegistrationEditor />}
         </>
       )}
 
