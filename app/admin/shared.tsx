@@ -1,4 +1,3 @@
-// shared.tsx
 'use client';
 import { supabase } from '@/lib/supabaseClient';
 
@@ -51,11 +50,22 @@ export const RestaurantCard = ({
     ) : (
       <div className="w-full h-40 bg-gray-100 rounded-2xl mb-5 flex items-center justify-center text-gray-300 text-xs font-black">NO PHOTO</div>
     )}
+    
     <div className="flex justify-between items-start mb-1">
       <h3 className="text-xl font-black text-gray-900 truncate flex-1">{restaurant.title}</h3>
       {restaurant.lat && <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded font-black">📍 GEO</span>}
     </div>
-    <p className="text-xs text-orange-500 font-bold mb-6">¥{restaurant.restaurant_price || '---'}</p>
+    <p className="text-xs text-orange-500 font-bold mb-4">¥{restaurant.restaurant_price || '---'}</p>
+
+    {/* --- NEW: QUICK GLANCE PRIVATE INFO --- */}
+    <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-5 space-y-1">
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1">🔒 Private Contact</p>
+      <p className="text-xs font-bold text-slate-700 flex justify-between"><span className="text-slate-400">担当者:</span> {restaurant.contact_name || '未設定'}</p>
+      <p className="text-xs font-bold text-slate-700 flex justify-between"><span className="text-slate-400">電話:</span> {restaurant.contact_phone || '未設定'}</p>
+      <p className="text-xs font-bold text-slate-700 flex justify-between truncate gap-2"><span className="text-slate-400 shrink-0">メール:</span> {restaurant.contact_email || '未設定'}</p>
+    </div>
+    {/* -------------------------------------- */}
+
     <div className="flex gap-2 mt-auto">
       <button onClick={() => onEdit(restaurant)} className="flex-1 bg-gray-900 text-white text-xs font-black py-3 rounded-xl hover:bg-black transition">✏️ Edit</button>
       {tab === 'directory' ? (

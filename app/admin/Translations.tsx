@@ -1,4 +1,3 @@
-// Translations.tsx
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
@@ -18,17 +17,27 @@ export default function Translations({
   const [transSubTab, setTransSubTab] = useState<'global' | 'tags' | 'restaurants'>('global');
   const [selectedTransRestId, setSelectedTransRestId] = useState<string>('');
   const [selectedTransLang, setSelectedTransLang] = useState<string>('');
-  const [transDraft, setTransDraft] = useState({ title: '', description: '', full_menu: '', takeout_menu: '', category_collabs: {} as any });
+  const [transDraft, setTransDraft] = useState({ 
+    title: '', 
+    description: '', 
+    full_menu: '', 
+    takeout_menu: '', 
+    discount_info: '',
+    website_url: '',
+    total_seats: '',
+    avg_stay_time: '',
+    photo_method: '',
+    admin_notes: '',
+    category_collabs: {} as any 
+  });
   const [savingTrans, setSavingTrans] = useState(false);
   const [newLangCode, setNewLangCode] = useState('');
   const [newLangName, setNewLangName] = useState('');
   const [newTransKey, setNewTransKey] = useState('');
   
-  // State to manage which custom flexbox dropdown is currently open
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
   const translationLangs = appLanguages.filter((lang: any) => lang.code !== 'ja');
-  
   const translatableRestaurants = liveRestaurants;
   const selectedTransRestData = translatableRestaurants.find((r: any) => r.id === selectedTransRestId);
 
@@ -42,6 +51,12 @@ export default function Translations({
           description: existingTrans.description || '',
           full_menu: existingTrans.full_menu || '',
           takeout_menu: existingTrans.takeout_menu || '',
+          discount_info: existingTrans.discount_info || '',
+          website_url: existingTrans.website_url || '',
+          total_seats: existingTrans.total_seats || '',
+          avg_stay_time: existingTrans.avg_stay_time || '',
+          photo_method: existingTrans.photo_method || '',
+          admin_notes: existingTrans.admin_notes || '',
           category_collabs: existingTrans.category_collabs || {}
         });
       }
@@ -60,23 +75,9 @@ export default function Translations({
       alert("Action Denied: You cannot delete the base language (Japanese).");
       return;
     }
-
-    const uiCount = uiTranslations.filter((t: any) => t.values && t.values[code]).length;
-    const tagCount = masterFilters.filter((f: any) => f.translations && f.translations[code]).length;
-    const restCount = translatableRestaurants.filter((r: any) => r.translations && r.translations[code] && Object.keys(r.translations[code]).length > 0).length;
-
-    const warningMessage = `Are you absolutely sure you want to delete the language "${name}" (${code})?\n\nThis will permanently remove access to:\n• ${uiCount} UI Dictionary translations\n• ${tagCount} Tag translations\n• ${restCount} Restaurant translations\n\nThis action cannot be easily undone. Proceed?`;
-
-    if (confirm(warningMessage)) {
+    if (confirm(`Are you absolutely sure you want to delete "${name}"?`)) {
       const { error } = await supabase.from('app_languages').delete().eq('code', code);
-      if (error) {
-        alert(`Error deleting language: ${error.message}`);
-      } else {
-        fetchAllData();
-        if (selectedTransLang === code) {
-          setSelectedTransLang('');
-        }
-      }
+      if (!error) fetchAllData();
     }
   };
 
@@ -135,15 +136,7 @@ export default function Translations({
               {appLanguages.map((l: any) => (
                 <div key={l.code} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl font-bold border border-blue-100">
                   <span>{l.name} ({l.code})</span>
-                  {l.code !== 'ja' && (
-                    <button 
-                      onClick={() => deleteLanguage(l.code, l.name)}
-                      className="w-5 h-5 flex items-center justify-center bg-blue-200 text-blue-800 hover:bg-red-500 hover:text-white rounded-full text-[10px] transition-colors"
-                      title="Delete Language"
-                    >
-                      ✕
-                    </button>
-                  )}
+                  {l.code !== 'ja' && ( <button onClick={() => deleteLanguage(l.code, l.name)} className="w-5 h-5 flex items-center justify-center bg-blue-200 hover:bg-red-500 hover:text-white rounded-full text-[10px]">✕</button> )}
                 </div>
               ))}
             </div>
@@ -163,7 +156,7 @@ export default function Translations({
                 <tr className="border-b border-gray-100">
                   <td className="p-2">
                     <form onSubmit={addTranslationKey} className="flex">
-                      <input type="text" value={newTransKey} onChange={(e) => setNewTransKey(e.target.value)} placeholder="New Key (e.g. badge_limited)" className="w-full p-2 border border-blue-200 rounded-lg text-sm font-bold bg-blue-50" />
+                      <input type="text" value={newTransKey} onChange={(e) => setNewTransKey(e.target.value)} placeholder="New Key" className="w-full p-2 border border-blue-200 rounded-lg text-sm font-bold bg-blue-50" />
                     </form>
                   </td>
                   <td colSpan={appLanguages.length + 1}></td>
@@ -193,76 +186,43 @@ export default function Translations({
               <tr className="border-b-2">
                 <th className="p-3 text-xs font-black text-gray-400 uppercase w-48">Category Type</th>
                 <th className="p-3 text-xs font-black text-gray-400 uppercase">Tag (JA)</th>
-                {translationLangs.map((l: any) => (
-                  <th key={l.code} className="p-3 text-xs font-black text-blue-600 uppercase">{l.name}</th>
-                ))}
+                {translationLangs.map((l: any) => ( <th key={l.code} className="p-3 text-xs font-black text-blue-600 uppercase">{l.name}</th> ))}
               </tr>
             </thead>
             <tbody>
               {masterFilters.map((filter: any) => (
                 <tr key={filter.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
                   <td className="p-3 align-top">
-                    {/* CUSTOM FLEXBOX DROPDOWN (Filtered specifically for database tags) */}
                     <div className="relative flex flex-col" onMouseLeave={() => setOpenDropdownId(null)}>
-                      <div 
-                        onClick={() => setOpenDropdownId(openDropdownId === filter.id ? null : filter.id)}
-                        className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold uppercase bg-white text-gray-700 cursor-pointer flex justify-between items-center transition-all hover:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
-                      >
+                      <div onClick={() => setOpenDropdownId(openDropdownId === filter.id ? null : filter.id)} className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold uppercase bg-white cursor-pointer flex justify-between items-center transition-all hover:border-blue-400">
                         <span className="truncate pr-2">{filter.type || 'other'}</span>
                         <span className="text-[10px] text-gray-400 shrink-0">▼</span>
                       </div>
-                      
                       {openDropdownId === filter.id && (
                         <div className="absolute top-full left-0 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-xl z-50 flex flex-col max-h-56 overflow-y-auto">
-                          {[
-                            { val: 'cuisine', label: 'Cuisine' },
-                            { val: 'restriction', label: 'Dietary / Restriction' },
-                            { val: 'payment', label: 'Payment' },
-                            { val: 'campus', label: 'Campus' },
-                            { val: 'seats', label: 'Seats' },
-                            { val: 'event', label: 'Event' },
-                            { val: 'other', label: 'Other' }
-                          ].map(opt => (
-                            <div 
-                              key={opt.val}
-                              onClick={async () => {
-                                const newType = opt.val;
-                                setMasterFilters(masterFilters.map((f: any) => f.id === filter.id ? { ...f, type: newType } : f));
-                                await supabase.from('filter_options').update({ type: newType }).eq('id', filter.id);
+                          {['cuisine', 'restriction', 'payment', 'campus', 'seats', 'event', 'other'].map(opt => (
+                            <div key={opt} onClick={async () => {
+                                setMasterFilters(masterFilters.map((f: any) => f.id === filter.id ? { ...f, type: opt } : f));
+                                await supabase.from('filter_options').update({ type: opt }).eq('id', filter.id);
                                 setOpenDropdownId(null);
-                              }}
-                              className={`p-3 text-xs font-bold uppercase cursor-pointer transition-colors border-b border-gray-50 last:border-0 ${filter.type === opt.val ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
-                            >
-                              {opt.label}
-                            </div>
+                              }} className={`p-3 text-xs font-bold uppercase cursor-pointer hover:bg-gray-100 ${filter.type === opt ? 'bg-blue-50 text-blue-700' : ''}`}> {opt} </div>
                           ))}
                         </div>
                       )}
                     </div>
                   </td>
                   <td className="p-3">
-                    <input 
-                      type="text" 
-                      defaultValue={filter.name}
-                      onBlur={(e) => updateBaseTagName(filter.id, filter.name, e.target.value, filter.type)}
-                      className="w-full p-3 font-bold text-gray-900 bg-transparent border border-transparent rounded-xl focus:border-orange-300 focus:bg-white outline-none" 
-                    />
+                    <input type="text" defaultValue={filter.name} onBlur={(e) => updateBaseTagName(filter.id, filter.name, e.target.value, filter.type)} className="w-full p-3 font-bold text-gray-900 bg-transparent border border-transparent rounded-xl focus:border-orange-300 focus:bg-white outline-none" />
                   </td>
                   {translationLangs.map((l: any) => (
                     <td key={l.code} className="p-2">
-                      <input 
-                        type="text" 
-                        value={filter.translations?.[l.code] || ''} 
-                        onChange={(e) => { 
-                          const ut = { ...filter.translations, [l.code]: e.target.value }; 
-                          setMasterFilters(masterFilters.map((f: any) => f.id === filter.id ? {...f, translations: ut} : f)); 
-                        }}
-                        onBlur={async (e) => { 
-                          const ut = { ...filter.translations, [l.code]: e.target.value }; 
-                          await supabase.from('filter_options').update({ translations: ut }).eq('id', filter.id); 
-                        }} 
-                        className="w-full p-3 border border-gray-100 rounded-xl text-sm focus:border-blue-400 outline-none" 
-                      />
+                      <input type="text" value={filter.translations?.[l.code] || ''} onChange={(e) => {
+                        const ut = { ...filter.translations, [l.code]: e.target.value };
+                        setMasterFilters(masterFilters.map((f: any) => f.id === filter.id ? {...f, translations: ut} : f));
+                      }} onBlur={async (e) => {
+                        const ut = { ...filter.translations, [l.code]: e.target.value };
+                        await supabase.from('filter_options').update({ translations: ut }).eq('id', filter.id);
+                      }} className="w-full p-3 border border-gray-100 rounded-xl text-sm focus:border-blue-400 outline-none" />
                     </td>
                   ))}
                 </tr>
@@ -287,19 +247,124 @@ export default function Translations({
           {selectedTransRestId && selectedTransLang && selectedTransRestData && (
             <div className="space-y-8 animate-in fade-in duration-300">
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                 <div className="space-y-4 bg-gray-50 p-6 rounded-3xl">
-                    <h3 className="text-xs font-black text-gray-400 uppercase">🇯🇵 Japanese Base</h3>
-                    <div className="p-4 bg-white border rounded-2xl font-bold text-gray-900">{selectedTransRestData.title}</div>
-                    <div className="p-4 bg-white border rounded-2xl text-gray-700 whitespace-pre-wrap">{selectedTransRestData.description}</div>
+                 {/* SOURCE DISPLAY (Mirroring Edit Modal) */}
+                 <div className="space-y-4 bg-gray-50 p-8 rounded-[40px] border border-gray-100">
+                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">🇯🇵 Japanese Source Base</h3>
+                    <div className="space-y-6">
+                       <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                          <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Title</label>
+                          <p className="font-black text-xl text-gray-900">{selectedTransRestData.title}</p>
+                       </div>
+                       <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                          <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Description</label>
+                          <p className="text-sm font-medium leading-relaxed text-gray-700 whitespace-pre-wrap">{selectedTransRestData.description}</p>
+                       </div>
+                       <div className="bg-white p-5 rounded-2xl border shadow-sm">
+                          <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Website URL</label>
+                          <p className="text-xs text-blue-500 truncate">{selectedTransRestData.website_url || '-'}</p>
+                       </div>
+                       <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-white p-4 rounded-2xl border shadow-sm h-32 overflow-y-auto">
+                             <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Menu</label>
+                             <p className="text-[10px] text-gray-600 whitespace-pre-wrap">{selectedTransRestData.full_menu || '-'}</p>
+                          </div>
+                          <div className="bg-white p-4 rounded-2xl border shadow-sm h-32 overflow-y-auto">
+                             <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Takeout</label>
+                             <p className="text-[10px] text-gray-600 whitespace-pre-wrap">{selectedTransRestData.takeout_menu || '-'}</p>
+                          </div>
+                       </div>
+                       <div className="grid grid-cols-2 gap-4">
+                          <div className="bg-white p-4 rounded-2xl border shadow-sm">
+                             <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Seats</label>
+                             <p className="text-[10px] font-bold">{selectedTransRestData.total_seats || '-'}</p>
+                          </div>
+                          <div className="bg-white p-4 rounded-2xl border shadow-sm">
+                             <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Stay Time</label>
+                             <p className="text-[10px] font-bold">{selectedTransRestData.avg_stay_time || '-'}</p>
+                          </div>
+                       </div>
+                       <div className="p-4 bg-orange-100/30 border border-orange-100 rounded-2xl">
+                          <label className="text-[9px] font-black text-orange-400 uppercase block mb-1">Discounts</label>
+                          <p className="text-[11px] font-medium text-orange-800">{selectedTransRestData.discount_info || '-'}</p>
+                       </div>
+                       <div className="p-4 bg-white border border-gray-100 rounded-2xl space-y-1">
+                          <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Admin Metadata</label>
+                          <p className="text-[9px] text-gray-400">Method: {selectedTransRestData.photo_method || '-'}</p>
+                          <p className="text-[9px] text-gray-400 italic">Notes: {selectedTransRestData.admin_notes || '-'}</p>
+                       </div>
+                       {selectedTransRestData.other_options?.length > 0 && (
+                          <div className="p-5 bg-purple-50 rounded-2xl border border-purple-100 space-y-2">
+                             <h4 className="text-[9px] font-black text-purple-400 uppercase">Event Localization (JA)</h4>
+                             {selectedTransRestData.other_options.map((opt: string) => (
+                                <div key={opt} className="text-[11px] font-bold text-purple-800">[{opt}] {selectedTransRestData.category_collabs?.[opt] || '-'}</div>
+                             ))}
+                          </div>
+                       )}
+                    </div>
                  </div>
-                 <div className="space-y-4 bg-blue-50/50 p-6 rounded-3xl border border-blue-100">
-                    <h3 className="text-xs font-black text-blue-600 uppercase">🌐 {selectedTransLang.toUpperCase()} Translation</h3>
-                    <input type="text" value={transDraft.title} onChange={(e) => setTransDraft(prev => ({...prev, title: e.target.value}))} className="w-full p-4 border border-blue-200 rounded-2xl font-bold" placeholder="Translated Title" />
-                    <textarea rows={6} value={transDraft.description} onChange={(e) => setTransDraft(prev => ({...prev, description: e.target.value}))} className="w-full p-4 border border-blue-200 rounded-2xl" placeholder="Translated Description" />
+
+                 {/* DRAFT INPUT (1:1 with Display) */}
+                 <div className="space-y-4 bg-blue-50/50 p-8 rounded-[40px] border border-blue-100 shadow-2xl shadow-blue-100">
+                    <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">🌐 {selectedTransLang.toUpperCase()} Draft</h3>
+                    
+                    <div className="space-y-4">
+                       <label className="text-[9px] font-black text-blue-400 uppercase ml-4 block -mb-3">Translated Title</label>
+                       <input type="text" value={transDraft.title} onChange={(e) => setTransDraft({...transDraft, title: e.target.value})} className="w-full p-5 border border-blue-200 rounded-2xl font-black text-blue-900 shadow-sm" placeholder="Title" />
+                       
+                       <label className="text-[9px] font-black text-blue-400 uppercase ml-4 block -mb-3">Translated Description</label>
+                       <textarea rows={4} value={transDraft.description} onChange={(e) => setTransDraft({...transDraft, description: e.target.value})} className="w-full p-5 border border-blue-200 rounded-2xl text-sm font-medium shadow-sm" placeholder="Description" />
+
+                       <label className="text-[9px] font-black text-blue-400 uppercase ml-4 block -mb-3">Translated Website URL</label>
+                       <input type="text" value={transDraft.website_url} onChange={(e) => setTransDraft({...transDraft, website_url: e.target.value})} className="w-full p-4 border border-blue-200 rounded-2xl text-xs font-bold text-blue-600" placeholder="Website" />
+
+                       <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[9px] font-black text-blue-400 uppercase ml-2 block mb-1">Menu Translation</label>
+                            <textarea rows={6} value={transDraft.full_menu} onChange={(e) => setTransDraft({...transDraft, full_menu: e.target.value})} className="w-full p-4 border border-blue-200 rounded-2xl text-[10px] font-medium" placeholder="..." />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-blue-400 uppercase ml-2 block mb-1">Takeout Translation</label>
+                            <textarea rows={6} value={transDraft.takeout_menu} onChange={(e) => setTransDraft({...transDraft, takeout_menu: e.target.value})} className="w-full p-4 border border-blue-200 rounded-2xl text-[10px] font-medium" placeholder="..." />
+                          </div>
+                       </div>
+
+                       <div className="grid grid-cols-2 gap-4">
+                          <div>
+                            <label className="text-[9px] font-black text-blue-400 uppercase ml-2 block mb-1">Seats Label</label>
+                            <input type="text" value={transDraft.total_seats} onChange={(e) => setTransDraft({...transDraft, total_seats: e.target.value})} className="w-full p-4 border border-blue-200 rounded-2xl text-xs font-bold" placeholder="e.g. 30 seats" />
+                          </div>
+                          <div>
+                            <label className="text-[9px] font-black text-blue-400 uppercase ml-2 block mb-1">Stay Time Label</label>
+                            <input type="text" value={transDraft.avg_stay_time} onChange={(e) => setTransDraft({...transDraft, avg_stay_time: e.target.value})} className="w-full p-4 border border-blue-200 rounded-2xl text-xs font-bold" placeholder="e.g. 1 hour" />
+                          </div>
+                       </div>
+
+                       <label className="text-[9px] font-black text-blue-400 uppercase ml-4 block -mb-3">Translated Discounts</label>
+                       <textarea rows={2} value={transDraft.discount_info} onChange={(e) => setTransDraft({...transDraft, discount_info: e.target.value})} className="w-full p-4 border border-blue-200 rounded-2xl text-[11px] font-black text-blue-600" placeholder="Students get..." />
+                       
+                       <div className="bg-white/50 p-4 rounded-2xl border border-blue-100 space-y-4 shadow-inner">
+                          <label className="text-[9px] font-black text-gray-400 uppercase block border-b border-blue-50 pb-1">Logistic Context Translation</label>
+                          <input type="text" value={transDraft.photo_method} onChange={(e) => setTransDraft({...transDraft, photo_method: e.target.value})} className="w-full p-3 border border-blue-50 rounded-xl text-[10px] font-bold" placeholder="Photo Method Translation..." />
+                          <textarea rows={2} value={transDraft.admin_notes} onChange={(e) => setTransDraft({...transDraft, admin_notes: e.target.value})} className="w-full p-3 border border-blue-50 rounded-xl text-[10px] italic" placeholder="Admin Notes Translation..." />
+                       </div>
+
+                       {selectedTransRestData.other_options?.length > 0 && (
+                          <div className="mt-2 space-y-4">
+                             <h4 className="text-[9px] font-black text-blue-400 uppercase ml-2 tracking-widest">Translate Event Content</h4>
+                             {selectedTransRestData.other_options.map((opt: string) => (
+                                <div key={opt} className="bg-white/50 p-4 rounded-2xl border border-blue-100 shadow-inner">
+                                   <label className="text-[9px] font-black text-gray-400 uppercase ml-1 block mb-2">{opt}</label>
+                                   <textarea rows={2} value={transDraft.category_collabs?.[opt] || ''} onChange={(e) => setTransDraft({...transDraft, category_collabs: { ...transDraft.category_collabs, [opt]: e.target.value }})} className="w-full p-3 border border-blue-50 rounded-xl text-[11px] font-bold text-blue-900 bg-white" placeholder={`Local info for ${opt}...`} />
+                                </div>
+                             ))}
+                          </div>
+                       )}
+                    </div>
                  </div>
                </div>
-               <button onClick={saveRestaurantTranslation} disabled={savingTrans} className="w-full bg-blue-600 text-white font-black py-5 rounded-3xl shadow-xl hover:bg-blue-700 transition disabled:opacity-50">
-                 {savingTrans ? 'SAVING...' : 'SAVE TRANSLATION'}
+
+               <button onClick={saveRestaurantTranslation} disabled={savingTrans} className="w-full bg-blue-600 text-white font-black py-6 rounded-[32px] shadow-xl hover:bg-blue-700 hover:scale-[1.01] transition disabled:opacity-50 text-xl tracking-tighter uppercase">
+                 {savingTrans ? 'Pushing Data...' : `Commit ${selectedTransLang.toUpperCase()} Translation`}
                </button>
             </div>
           )}

@@ -1,4 +1,3 @@
-// page.tsx
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
@@ -11,17 +10,15 @@ import CategoryHub from './CategoryHub';
 import Translations from './Translations';
 import AdStudio from './AdStudio';
 import UserManagement from './UserManagement';
-// 1. IMPORT THE NEW EDITOR COMPONENT
 import RegistrationEditor from './RegistrationEditor';
 
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [authChecking, setAuthChecking] = useState(true); // Prevents login screen flash
+  const [authChecking, setAuthChecking] = useState(true);
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   
-  // 2. ADD 'registration' TO THE ALLOWED TABS
   const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'categories' | 'translations' | 'ad_studio' | 'users' | 'registration'>('directory');
   const [loading, setLoading] = useState(true);
   
@@ -44,7 +41,6 @@ export default function AdminDashboard() {
 
   useEffect(() => { editingDataRef.current = editingData; }, [editingData]);
 
-  // 1. Check Auth Session on Load
   useEffect(() => {
     const checkSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -54,7 +50,6 @@ export default function AdminDashboard() {
     
     checkSession();
 
-    // Listen for auth state changes (login, logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setIsAuthenticated(!!session);
     });
@@ -62,7 +57,6 @@ export default function AdminDashboard() {
     return () => subscription.unsubscribe();
   }, []);
 
-  // Fetch data only if authenticated
   useEffect(() => { 
     if (isAuthenticated) fetchAllData(); 
   }, [isAuthenticated]);
@@ -314,7 +308,6 @@ export default function AdminDashboard() {
     else { alert(`✅ Saved Successfully!`); setEditingData(null); fetchAllData(); }
   };
 
-  // Prevent flash of login screen while checking session
   if (authChecking) {
     return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-400 font-black tracking-widest">VERIFYING ACCESS...</div>;
   }
@@ -376,7 +369,6 @@ export default function AdminDashboard() {
         <button onClick={() => setActiveTab('translations')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'translations' ? 'bg-blue-600 text-white shadow-lg' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>🌐 Translations</button>
         <button onClick={() => setActiveTab('ad_studio')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'ad_studio' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>📢 Ad Studio</button>
         <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>👥 Team</button>
-        {/* 3. ADD THE BUTTON FOR THE REGISTRATION TAB */}
         <button onClick={() => setActiveTab('registration')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'registration' ? 'bg-amber-600 text-white shadow-lg' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'}`}>📝 Form Builder</button>
       </div>
       
@@ -390,7 +382,6 @@ export default function AdminDashboard() {
           {activeTab === 'categories' && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
           {activeTab === 'directory' && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
           {activeTab === 'pending' && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
-          {/* 4. RENDER THE COMPONENT WHEN THE TAB IS ACTIVE */}
           {activeTab === 'registration' && <RegistrationEditor />}
         </>
       )}
@@ -461,6 +452,27 @@ export default function AdminDashboard() {
                   ))}
                 </div>
               </section>
+
+              {/* --- 1. PRIVATE CONTACT INFO & LOGISTICS --- */}
+              <section className="space-y-4">
+                <h3 className="text-xl font-black text-gray-900 border-b pb-2 flex items-center gap-2">
+                  <span className="text-red-500">🔒</span> Private Admin Data & Logistics
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                  <div className="grid grid-cols-1 gap-4 bg-red-50 p-6 rounded-3xl border border-red-100">
+                    <label className="text-[10px] font-black text-red-400 uppercase tracking-widest">Contact Details</label>
+                    <input type="text" value={editingData.contact_name || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_name: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="担当者名 (Contact Name)" />
+                    <input type="text" value={editingData.contact_phone || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_phone: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="電話番号 (Phone)" />
+                    <input type="text" value={editingData.contact_email || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_email: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="メールアドレス (Email)" />
+                  </div>
+                  <div className="grid grid-cols-1 gap-4 bg-orange-50 p-6 rounded-3xl border border-orange-100">
+                    <label className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Photo Logistics & Admin Notes</label>
+                    <input type="text" value={editingData.photo_method || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, photo_method: e.target.value}))} className="w-full p-4 border border-orange-100 rounded-2xl font-bold shadow-sm" placeholder="写真のご提供方法 (Photo Method)" />
+                    <textarea rows={4} value={editingData.admin_notes || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, admin_notes: e.target.value}))} className="w-full p-4 border border-orange-100 rounded-2xl font-medium italic shadow-sm" placeholder="管理者用メモ (Internal Notes)" />
+                  </div>
+                </div>
+              </section>
+
               <section className="space-y-8">
                 <h3 className="text-xl font-black text-gray-900 border-b pb-2">Master Filter Tags</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
@@ -483,7 +495,7 @@ export default function AdminDashboard() {
                 </div>
               </section>
               <section className="space-y-8">
-                 <h3 className="text-xl font-black text-gray-900 border-b pb-2">Basic Info</h3>
+                 <h3 className="text-xl font-black text-gray-900 border-b pb-2">Basic Info & Content</h3>
                  <div className="bg-gray-50 p-6 rounded-3xl border border-gray-200">
                     <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Gallery Images (Multiple)</label>
                     <input type="file" multiple accept="image/*" onChange={handleGalleryUpload} className="text-sm font-bold mb-6 block w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100" />
@@ -506,17 +518,32 @@ export default function AdminDashboard() {
                     </div>
                     <div className="space-y-4 flex flex-col justify-end">
                       <input type="text" value={editingData.title || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, title: e.target.value}))} className="w-full p-4 border rounded-2xl font-black text-lg shadow-sm" placeholder="Shop Title" />
+                      <input type="text" value={editingData.website_url || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, website_url: e.target.value}))} className="w-full p-4 border border-blue-100 bg-blue-50/30 rounded-2xl font-bold text-blue-600 shadow-sm" placeholder="Website URL (https://...)" />
                       <input type="number" value={editingData.restaurant_price || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, restaurant_price: parseInt(e.target.value)}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Price" />
                       <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, address: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Address" />
+                      <div className="grid grid-cols-2 gap-4">
+                        <input type="text" value={editingData.total_seats || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, total_seats: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="総席数 (e.g. 30席)" />
+                        <input type="text" value={editingData.avg_stay_time || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, avg_stay_time: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="平均滞接時間 (e.g. 1時間)" />
+                      </div>
                       <div className="flex gap-2">
                         <input type="text" disabled value={`Lat: ${editingData.lat || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
                         <input type="text" disabled value={`Lng: ${editingData.lng || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
                       </div>
                     </div>
                  </div>
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div>
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Operating Hours</label>
+                      <textarea rows={4} value={editingData.operating_hours || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm font-medium" placeholder="Mon-Fri: 11:00-22:00" />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Takeout Menu Details</label>
+                      <textarea rows={4} value={editingData.takeout_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, takeout_menu: e.target.value}))} className="w-full p-6 border rounded-[32px] text-sm bg-orange-50/20 font-medium shadow-inner" placeholder="テイクアウトメニュー (Takeout menu info)" />
+                    </div>
+                 </div>
                  <div>
-                   <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Operating Hours</label>
-                   <textarea rows={6} value={editingData.operating_hours || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm font-medium" placeholder="Mon-Fri: 11:00-22:00&#10;Sat-Sun: 10:00-23:00" />
+                    <label className="text-[10px] font-black text-orange-400 uppercase tracking-widest block mb-2">Discount / Service Info</label>
+                    <textarea rows={2} value={editingData.discount_info || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, discount_info: e.target.value}))} className="w-full p-6 border border-orange-100 bg-orange-50/10 rounded-[24px] text-xs font-medium shadow-sm" placeholder="割引・サービス (Discount/Student services)" />
                  </div>
                  <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, description: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm" placeholder="Description..." />
                  <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, full_menu: e.target.value}))} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium shadow-inner" placeholder="Menu..." />
