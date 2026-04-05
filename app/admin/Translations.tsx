@@ -23,6 +23,9 @@ export default function Translations({
   const [newLangCode, setNewLangCode] = useState('');
   const [newLangName, setNewLangName] = useState('');
   const [newTransKey, setNewTransKey] = useState('');
+  
+  // State to manage which custom flexbox dropdown is currently open
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
 
   const translationLangs = appLanguages.filter((lang: any) => lang.code !== 'ja');
   
@@ -188,7 +191,7 @@ export default function Translations({
           <table className="w-full text-left">
             <thead>
               <tr className="border-b-2">
-                <th className="p-3 text-xs font-black text-gray-400 uppercase w-40">Category Type</th>
+                <th className="p-3 text-xs font-black text-gray-400 uppercase w-48">Category Type</th>
                 <th className="p-3 text-xs font-black text-gray-400 uppercase">Tag (JA)</th>
                 {translationLangs.map((l: any) => (
                   <th key={l.code} className="p-3 text-xs font-black text-blue-600 uppercase">{l.name}</th>
@@ -198,24 +201,44 @@ export default function Translations({
             <tbody>
               {masterFilters.map((filter: any) => (
                 <tr key={filter.id} className="border-b border-gray-50 hover:bg-gray-50 transition">
-                  <td className="p-3">
-                    {/* INTERACTIVE DROPDOWN: Allows user to fix broken migration types instantly */}
-                    <select 
-                      value={filter.type || 'other'}
-                      onChange={async (e) => {
-                        const newType = e.target.value;
-                        setMasterFilters(masterFilters.map((f: any) => f.id === filter.id ? { ...f, type: newType } : f));
-                        await supabase.from('filter_options').update({ type: newType }).eq('id', filter.id);
-                      }}
-                      className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold uppercase bg-white text-gray-700 outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 cursor-pointer transition-all"
-                    >
-                      <option value="cuisine">Cuisine</option>
-                      <option value="restriction">Restriction</option>
-                      <option value="payment">Payment</option>
-                      <option value="campus">Campus</option>
-                      <option value="seats">Seats</option>
-                      <option value="other">Other / Event</option>
-                    </select>
+                  <td className="p-3 align-top">
+                    {/* CUSTOM FLEXBOX DROPDOWN (Filtered specifically for database tags) */}
+                    <div className="relative flex flex-col" onMouseLeave={() => setOpenDropdownId(null)}>
+                      <div 
+                        onClick={() => setOpenDropdownId(openDropdownId === filter.id ? null : filter.id)}
+                        className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold uppercase bg-white text-gray-700 cursor-pointer flex justify-between items-center transition-all hover:border-blue-400 focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <span className="truncate pr-2">{filter.type || 'other'}</span>
+                        <span className="text-[10px] text-gray-400 shrink-0">▼</span>
+                      </div>
+                      
+                      {openDropdownId === filter.id && (
+                        <div className="absolute top-full left-0 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-xl z-50 flex flex-col max-h-56 overflow-y-auto">
+                          {[
+                            { val: 'cuisine', label: 'Cuisine' },
+                            { val: 'restriction', label: 'Dietary / Restriction' },
+                            { val: 'payment', label: 'Payment' },
+                            { val: 'campus', label: 'Campus' },
+                            { val: 'seats', label: 'Seats' },
+                            { val: 'event', label: 'Event' },
+                            { val: 'other', label: 'Other' }
+                          ].map(opt => (
+                            <div 
+                              key={opt.val}
+                              onClick={async () => {
+                                const newType = opt.val;
+                                setMasterFilters(masterFilters.map((f: any) => f.id === filter.id ? { ...f, type: newType } : f));
+                                await supabase.from('filter_options').update({ type: newType }).eq('id', filter.id);
+                                setOpenDropdownId(null);
+                              }}
+                              className={`p-3 text-xs font-bold uppercase cursor-pointer transition-colors border-b border-gray-50 last:border-0 ${filter.type === opt.val ? 'bg-blue-50 text-blue-700' : 'text-gray-700 hover:bg-gray-100'}`}
+                            >
+                              {opt.label}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </td>
                   <td className="p-3">
                     <input 

@@ -33,6 +33,18 @@ export default function Home() {
     t('filter_dietary', '食事制限');
     t('filter_payment', '決済方法');
     t('filter_events', 'イベント・その他');
+    t('filter_distance', '距離 (徒歩)');
+    t('dist_5', '5分以内');
+    t('dist_10', '10分以内');
+    t('dist_15', '15分以内');
+    t('dist_require_origin', '距離で絞り込むには、キャンパスまたは現在地を選択してください。');
+    t('filter_stay_time', '滞在時間');
+    t('stay_15', '〜15分');
+    t('stay_15_30', '15分〜30分');
+    t('stay_30_60', '30分〜1時間');
+    t('stay_60_plus', '1時間以上');
+    t('filter_open_now', '営業中のみ');
+    t('filter_takeout', 'テイクアウト可');
   }
 
   const [query, setQuery] = useState('');
@@ -41,10 +53,15 @@ export default function Home() {
   const [restrictions, setRestrictions] = useState<string[]>([]);
   const [payments, setPayments] = useState<string[]>([]);
   const [otherOptions, setOtherOptions] = useState<string[]>([]);
+  
+  // Boolean Filters
   const [openNowOnly, setOpenNowOnly] = useState(false); 
+  const [takeoutOnly, setTakeoutOnly] = useState(false);
   
   const [campusSort, setCampusSort] = useState('');
   const [seatCapacity, setSeatCapacity] = useState('');
+  const [maxWalkTime, setMaxWalkTime] = useState<number | ''>(''); 
+  const [stayDuration, setStayDuration] = useState(''); 
 
   const [restaurants, setRestaurants] = useState<any[]>([]);
   const [masterFilters, setMasterFilters] = useState<any[]>([]);
@@ -98,7 +115,8 @@ export default function Home() {
 
   const clearFilters = () => {
     setQuery(''); setPrice(3000); setCuisines([]); setRestrictions([]); setPayments([]); setOtherOptions([]);
-    setOpenNowOnly(false); setCampusSort(''); setSeatCapacity('');
+    setOpenNowOnly(false); setTakeoutOnly(false);
+    setCampusSort(''); setSeatCapacity(''); setMaxWalkTime(''); setStayDuration('');
     setUserLocation(null); setGeoError('');
   };
 
@@ -145,7 +163,7 @@ export default function Home() {
 
   useEffect(() => {
     setPage(0); setRestaurants([]); setHasMore(true);
-  }, [query, price, cuisines, restrictions, payments, otherOptions, userLocation, openNowOnly, campusSort, seatCapacity]);
+  }, [query, price, cuisines, restrictions, payments, otherOptions, userLocation, openNowOnly, takeoutOnly, campusSort, seatCapacity, maxWalkTime, stayDuration]);
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3; 
@@ -166,6 +184,7 @@ export default function Home() {
 
       let dbQuery = supabase.from('restaurants').select('*', { count: 'exact' }).eq('status', 'approved');
 
+      // Database-level filters
       if (query.trim()) {
         const tokens = query.replace(/　/g, ' ').split(/\s+/).filter(Boolean);
         tokens.forEach(token => { dbQuery = dbQuery.or(`title.ilike.%${token}%,description.ilike.%${token}%,address.ilike.%${token}%,takeout_menu.ilike.%${token}%`); });
@@ -175,8 +194,14 @@ export default function Home() {
       if (restrictions.length > 0) dbQuery = dbQuery.overlaps('food_restrictions', restrictions);
       if (payments.length > 0) dbQuery = dbQuery.overlaps('payment_methods', payments);
       if (otherOptions.length > 0) dbQuery = dbQuery.overlaps('other_options', otherOptions);
+      
+      if (takeoutOnly) dbQuery = dbQuery.eq('takeout_available', true);
+      
+      // Because we collect exactly these strings in the form, we can query Supabase directly
+      if (stayDuration) dbQuery = dbQuery.eq('avg_stay_time', stayDuration);
 
-      const requiresClientProcessing = userLocation || campusSort || seatCapacity || openNowOnly;
+      // Client-side processing triggers
+      const requiresClientProcessing = userLocation || campusSort || seatCapacity || openNowOnly || maxWalkTime;
 
       if (requiresClientProcessing) {
         const { data, error } = await dbQuery.limit(1000);
@@ -215,6 +240,15 @@ export default function Home() {
             processed = processed.filter(r => isOpenNow(r.operating_hours));
           }
 
+          if (maxWalkTime) {
+            processed = processed.filter(r => {
+              const dist = campusSort ? r.campus_dist_meters : r.dist_meters;
+              if (dist === undefined) return false;
+              // 80 meters per minute is the standard walking speed conversion
+              return dist <= (Number(maxWalkTime) * 80); 
+            });
+          }
+
           if (campusSort) {
             processed = processed.filter(r => r.campus_dist_meters !== undefined);
             processed.sort((a, b) => (a.campus_dist_meters || 0) - (b.campus_dist_meters || 0));
@@ -241,16 +275,16 @@ export default function Home() {
       setLoading(false);
     }, 250);
     return () => clearTimeout(delayDebounceFn);
-  }, [query, price, cuisines, restrictions, payments, otherOptions, page, userLocation, openNowOnly, campusSort, seatCapacity]);
+  }, [query, price, cuisines, restrictions, payments, otherOptions, page, userLocation, openNowOnly, takeoutOnly, campusSort, seatCapacity, maxWalkTime, stayDuration]);
 
   const lastElementRef = useCallback((node: HTMLDivElement | null) => {
-    if (loading || userLocation || campusSort || seatCapacity || openNowOnly) return; 
+    if (loading || userLocation || campusSort || seatCapacity || openNowOnly || maxWalkTime || stayDuration) return; 
     if (observer.current) observer.current.disconnect();
     observer.current = new IntersectionObserver(entries => { if (entries[0].isIntersecting && hasMore) setPage(prev => prev + 1); });
     if (node) observer.current.observe(node);
-  }, [loading, hasMore, userLocation, campusSort, seatCapacity, openNowOnly]);
+  }, [loading, hasMore, userLocation, campusSort, seatCapacity, openNowOnly, maxWalkTime, stayDuration]);
 
-  const hasActiveFilters = query || price !== 3000 || cuisines.length > 0 || restrictions.length > 0 || payments.length > 0 || otherOptions.length > 0 || userLocation !== null || openNowOnly || campusSort !== '' || seatCapacity !== '';
+  const hasActiveFilters = query || price !== 3000 || cuisines.length > 0 || restrictions.length > 0 || payments.length > 0 || otherOptions.length > 0 || userLocation !== null || openNowOnly || takeoutOnly || campusSort !== '' || seatCapacity !== '' || maxWalkTime !== '' || stayDuration !== '';
 
   const dbCuisines = masterFilters.filter(f => f.type === 'cuisine');
   const dbRestrictions = masterFilters.filter(f => f.type === 'restriction');
@@ -364,6 +398,7 @@ export default function Home() {
                    <button onClick={clearFilters} className="lg:hidden mb-6 w-full text-sm font-bold text-orange-600 py-3 bg-orange-50 rounded-xl border border-orange-100 active:bg-orange-100 transition">{t('btn_clear_filters', '条件をリセットする')}</button>
                 )}
                 
+                {/* OPEN NOW TOGGLE */}
                 <div className="mb-6">
                   <label className="flex items-center cursor-pointer p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:border-orange-200 transition">
                     <input type="checkbox" checked={openNowOnly} onChange={(e) => setOpenNowOnly(e.target.checked)} className="h-6 w-6 lg:h-5 lg:w-5 accent-orange-600 cursor-pointer" />
@@ -377,13 +412,39 @@ export default function Home() {
                     {Object.entries(CAMPUSES).map(([key, campus]) => (
                       <button
                         key={key}
-                        onClick={() => { setCampusSort(campusSort === key ? '' : key); setUserLocation(null); setGeoError(''); }}
+                        onClick={() => { setCampusSort(campusSort === key ? '' : key); setUserLocation(null); setGeoError(''); setMaxWalkTime(''); }}
                         className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${campusSort === key ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
                       >
                         {t(`tag_campus_${key}`, campus.name)}
                       </button>
                     ))}
                   </div>
+                </div>
+
+                {/* DISTANCE FILTER */}
+                <div className="mb-8">
+                  <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_distance', '距離 (徒歩)')}</label>
+                  {(!campusSort && !userLocation) ? (
+                    <div className="text-xs font-bold text-orange-600 bg-orange-50 p-3 rounded-xl border border-orange-100 leading-relaxed">
+                      {t('dist_require_origin', '距離で絞り込むには、キャンパスまたは現在地を選択してください。')}
+                    </div>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {[
+                        { id: 5, label: '5分以内' },
+                        { id: 10, label: '10分以内' },
+                        { id: 15, label: '15分以内' }
+                      ].map(opt => (
+                        <button
+                          key={opt.id}
+                          onClick={() => setMaxWalkTime(maxWalkTime === opt.id ? '' : opt.id)}
+                          className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${maxWalkTime === opt.id ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                        >
+                          {t(`dist_${opt.id}`, opt.label)}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div className="mb-8">
@@ -405,12 +466,41 @@ export default function Home() {
                   </div>
                 </div>
 
+                {/* STAY TIME FILTER */}
+                <div className="mb-8">
+                  <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_stay_time', '平均滞在時間')}</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: '~15分', label: t('stay_15', '〜15分') },
+                      { id: '15分~30分', label: t('stay_15_30', '15分〜30分') },
+                      { id: '30分~1時間', label: t('stay_30_60', '30分〜1時間') },
+                      { id: '1時間以上', label: t('stay_60_plus', '1時間以上') }
+                    ].map(opt => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setStayDuration(stayDuration === opt.id ? '' : opt.id)}
+                        className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${stayDuration === opt.id ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
                 <div className="mb-8">
                   <div className="flex justify-between items-center mb-4">
                     <label className="block text-xs font-bold text-gray-400 uppercase">{t('filter_budget', '予算')}</label>
                     <span className="text-orange-600 font-black text-sm bg-orange-50 px-2 py-1 rounded-md">{price === 3000 ? t('price_no_limit', '制限なし') : t('price_under_amount', '¥{{price}} 以下', { price: price })}</span>
                   </div>
                   <input type="range" min="500" max="3000" step="100" value={price} onChange={(e) => setPrice(parseInt(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg accent-orange-600 cursor-pointer" />
+                </div>
+
+                {/* TAKEOUT TOGGLE (Moved below Budget) */}
+                <div className="mb-8">
+                  <label className="flex items-center cursor-pointer p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:border-orange-200 transition">
+                    <input type="checkbox" checked={takeoutOnly} onChange={(e) => setTakeoutOnly(e.target.checked)} className="h-6 w-6 lg:h-5 lg:w-5 accent-orange-600 cursor-pointer" />
+                    <span className="ml-4 lg:ml-3 font-black text-gray-800 text-base lg:text-sm">{t('filter_takeout', 'テイクアウト可')}</span>
+                  </label>
                 </div>
                 
                 {[
