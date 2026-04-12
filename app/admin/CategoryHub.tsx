@@ -2,6 +2,7 @@
 'use client';
 import { useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { Icons } from './shared';
 
 export default function CategoryHub({ 
   customCategories, 
@@ -91,7 +92,7 @@ export default function CategoryHub({
   return (
     <div className="max-w-6xl space-y-12 pb-20">
       <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
-        <h2 className="text-3xl font-black mb-2">🎉 Event Management (DMS)</h2>
+        <h2 className="text-3xl font-black mb-2">Event Management (DMS)</h2>
         <form onSubmit={addCategory} className="flex flex-wrap items-center gap-4 mb-10 border-b pb-10 bg-gray-50 p-6 rounded-3xl">
           <input type="text" value={newCategoryName} onChange={(e) => setNewCategoryName(e.target.value)} placeholder="New Event Name" className="flex-1 min-w-[200px] p-4 border rounded-2xl font-bold outline-none focus:ring-2 focus:ring-purple-500" />
           
@@ -115,7 +116,7 @@ export default function CategoryHub({
               <div className="p-6 flex justify-between items-center bg-white border-b border-gray-100">
                 <span className="font-black text-xl text-gray-900">{cat.name}</span>
                 <div className="flex gap-3">
-                  <button onClick={() => openManageCategory(cat.name)} className="bg-purple-600 text-white px-5 py-2 rounded-xl font-bold text-xs shadow-md">👥 Participants</button>
+                  <button onClick={() => openManageCategory(cat.name)} className="bg-purple-600 flex items-center gap-1.5 text-white px-5 py-2 rounded-xl font-bold text-xs shadow-md"><Icons.Users className="w-4 h-4" /> Participants</button>
                   <button onClick={() => deleteCategory(cat.id, cat.name)} className="text-red-400 font-bold text-xs px-2 hover:bg-red-50 rounded-md">Delete</button>
                 </div>
               </div>
@@ -179,13 +180,13 @@ export default function CategoryHub({
         </div>
       </section>
       <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
-        <h2 className="text-3xl font-black mb-2">🏷️ Master Filter Tags</h2>
+        <h2 className="text-3xl font-black mb-2">Master Filter Tags</h2>
         <form onSubmit={addMasterFilter} className="flex flex-wrap gap-4 mb-10 p-6 bg-gray-50 rounded-3xl border border-gray-100">
           <select value={newFilterType} onChange={(e: any) => setNewFilterType(e.target.value)} className="p-3 border rounded-xl font-bold bg-white">
-            <option value="cuisine">🍜 Cuisine</option>
-            <option value="restriction">🥗 Dietary</option>
-            <option value="payment">💳 Payment</option>
-            <option value="area">🗺️ Area</option>
+            <option value="cuisine">Cuisine</option>
+            <option value="restriction">Dietary</option>
+            <option value="payment">Payment</option>
+            <option value="area">Area</option>
           </select>
           <input type="text" value={newFilterName} onChange={(e) => setNewFilterName(e.target.value)} placeholder="Tag Name" className="flex-1 p-3 border rounded-xl font-bold" />
           <button type="submit" className="bg-orange-600 text-white font-black px-8 py-3 rounded-xl hover:bg-orange-700 transition">Add Tag</button>
@@ -200,7 +201,7 @@ export default function CategoryHub({
                     <input type="text" defaultValue={filter.name} 
                            onBlur={(e) => updateBaseTagName(filter.id, filter.name, e.target.value, filter.type)}
                            className="text-sm font-black text-gray-800 bg-transparent outline-none border-b border-transparent focus:border-orange-300 w-4/5" />
-                    <button onClick={() => deleteMasterFilter(filter.id)} className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition">✕</button>
+                    <button onClick={() => deleteMasterFilter(filter.id)} className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><Icons.Close className="w-4 h-4" /></button>
                   </div>
                 ))}
               </div>

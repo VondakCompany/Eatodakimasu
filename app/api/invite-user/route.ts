@@ -1,4 +1,4 @@
-// app/api/invite-user/route.ts
+// src/app/api/invite-user/route.ts
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
@@ -18,7 +18,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Email and role are required.' }, { status: 400 });
     }
 
-    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email);
+    // Set fallback to localhost for local testing. In production, this uses your live URL.
+    const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000';
+
+    const { data: authData, error: authError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
+      redirectTo: `${siteUrl}/set-password`,
+    });
 
     if (authError) {
       return NextResponse.json({ error: authError.message }, { status: 400 });
@@ -29,7 +34,7 @@ export async function POST(request: Request) {
     let defaultTabs: string[] = [];
     switch (role) {
       case 'admin': 
-        defaultTabs = ['directory', 'pending', 'categories', 'translations', 'ad_studio', 'users']; 
+        defaultTabs = ['directory', 'pending', 'categories', 'translations', 'ad_studio', 'users', 'registration']; 
         break;
       case 'ad_manager': 
         defaultTabs = ['ad_studio']; 
@@ -42,6 +47,9 @@ export async function POST(request: Request) {
         break;
       case 'translator': 
         defaultTabs = ['translations']; 
+        break;
+      case 'registration_manager': 
+        defaultTabs = ['registration'];
         break;
       case 'editor':
         defaultTabs = ['directory', 'pending', 'categories', 'translations']; 

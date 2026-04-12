@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { Icons } from './shared';
 
 export default function Translations({
   appLanguages,
@@ -136,7 +137,7 @@ export default function Translations({
               {appLanguages.map((l: any) => (
                 <div key={l.code} className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-700 rounded-xl font-bold border border-blue-100">
                   <span>{l.name} ({l.code})</span>
-                  {l.code !== 'ja' && ( <button onClick={() => deleteLanguage(l.code, l.name)} className="w-5 h-5 flex items-center justify-center bg-blue-200 hover:bg-red-500 hover:text-white rounded-full text-[10px]">✕</button> )}
+                  {l.code !== 'ja' && ( <button onClick={() => deleteLanguage(l.code, l.name)} className="w-5 h-5 flex items-center justify-center bg-blue-200 hover:bg-red-500 hover:text-white rounded-full"><Icons.Close className="w-3 h-3" /></button> )}
                 </div>
               ))}
             </div>
@@ -169,7 +170,7 @@ export default function Translations({
                         <input type="text" value={trans.values?.[l.code] || ''} onChange={(e) => updateTranslationValue(trans.translation_key, l.code, e.target.value)} className="w-full p-2 border border-gray-100 rounded-lg text-sm" />
                       </td>
                     ))}
-                    <td><button onClick={() => deleteTranslationKey(trans.translation_key)} className="text-red-300">✕</button></td>
+                    <td><button onClick={() => deleteTranslationKey(trans.translation_key)} className="text-red-300 hover:text-red-500"><Icons.Close className="w-4 h-4" /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -196,7 +197,6 @@ export default function Translations({
                     <div className="relative flex flex-col" onMouseLeave={() => setOpenDropdownId(null)}>
                       <div onClick={() => setOpenDropdownId(openDropdownId === filter.id ? null : filter.id)} className="w-full p-2 border border-gray-200 rounded-lg text-xs font-bold uppercase bg-white cursor-pointer flex justify-between items-center transition-all hover:border-blue-400">
                         <span className="truncate pr-2">{filter.type || 'other'}</span>
-                        <span className="text-[10px] text-gray-400 shrink-0">▼</span>
                       </div>
                       {openDropdownId === filter.id && (
                         <div className="absolute top-full left-0 mt-1 w-full bg-white border border-gray-200 rounded-lg shadow-xl z-50 flex flex-col max-h-56 overflow-y-auto">
@@ -249,7 +249,7 @@ export default function Translations({
                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
                  {/* SOURCE DISPLAY (Mirroring Edit Modal) */}
                  <div className="space-y-4 bg-gray-50 p-8 rounded-[40px] border border-gray-100">
-                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">🇯🇵 Japanese Source Base</h3>
+                    <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4 flex items-center gap-2">Japanese Source Base</h3>
                     <div className="space-y-6">
                        <div className="bg-white p-5 rounded-2xl border shadow-sm">
                           <label className="text-[9px] font-black text-gray-300 uppercase block mb-1">Title</label>
@@ -294,7 +294,7 @@ export default function Translations({
                        </div>
                        {selectedTransRestData.other_options?.length > 0 && (
                           <div className="p-5 bg-purple-50 rounded-2xl border border-purple-100 space-y-2">
-                             <h4 className="text-[9px] font-black text-purple-400 uppercase">Event Localization (JA)</h4>
+                             <h4 className="text-[9px] font-black text-purple-400 uppercase">Event Localization</h4>
                              {selectedTransRestData.other_options.map((opt: string) => (
                                 <div key={opt} className="text-[11px] font-bold text-purple-800">[{opt}] {selectedTransRestData.category_collabs?.[opt] || '-'}</div>
                              ))}
@@ -305,7 +305,7 @@ export default function Translations({
 
                  {/* DRAFT INPUT (1:1 with Display) */}
                  <div className="space-y-4 bg-blue-50/50 p-8 rounded-[40px] border border-blue-100 shadow-2xl shadow-blue-100">
-                    <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">🌐 {selectedTransLang.toUpperCase()} Draft</h3>
+                    <h3 className="text-[10px] font-black text-blue-600 uppercase tracking-widest mb-4 flex items-center gap-2">{selectedTransLang.toUpperCase()} Draft</h3>
                     
                     <div className="space-y-4">
                        <label className="text-[9px] font-black text-blue-400 uppercase ml-4 block -mb-3">Translated Title</label>

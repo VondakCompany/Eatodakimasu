@@ -1,8 +1,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
-import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
-import { geocodeAddress, getDbField } from './shared';
+import { geocodeAddress, getDbField, Icons } from './shared';
 
 import Directory from './Directory';
 import Pending from './Pending';
@@ -14,13 +13,19 @@ import RegistrationEditor from './RegistrationEditor';
 
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [userProfile, setUserProfile] = useState<any>(null);
+  
   const [authChecking, setAuthChecking] = useState(true);
+  const [isSlowAuth, setIsSlowAuth] = useState(false);
+  
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   
   const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'categories' | 'translations' | 'ad_studio' | 'users' | 'registration'>('directory');
+  
   const [loading, setLoading] = useState(true);
+  const [isSlowData, setIsSlowData] = useState(false);
   
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
   const [liveRestaurants, setLiveRestaurants] = useState<any[]>([]);
@@ -39,31 +44,91 @@ export default function AdminDashboard() {
   const [savingParticipants, setSavingParticipants] = useState(false);
   const [batchStatus, setBatchStatus] = useState<{ total: number, current: number, isRunning: boolean } | null>(null);
 
+  // THIS LOCK PREVENTS THE IFRAME BROADCAST LOOP
+  const hasInitializedAuth = useRef(false);
+
   useEffect(() => { editingDataRef.current = editingData; }, [editingData]);
 
+  // Unified, flicker-free, and broadcast-proof auth initialization
   useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setIsAuthenticated(!!session);
-      setAuthChecking(false);
-    };
-    
-    checkSession();
+    let mounted = true;
+    let authTimer: NodeJS.Timeout;
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(!!session);
+    const initAuth = async (session: any) => {
+      if (hasInitializedAuth.current) return;
+
+      authTimer = setTimeout(() => {
+        if (mounted) setIsSlowAuth(true);
+      }, 4000);
+
+      try {
+        if (session?.user) {
+          const { data, error } = await supabase.from('user_profiles').select('*').eq('id', session.user.id).single();
+          
+          if (error || !data) {
+            console.error("Profile missing or RLS blocked. Terminating session.");
+            await supabase.auth.signOut();
+            if (mounted) setIsAuthenticated(false);
+          } else {
+            if (mounted) {
+              setUserProfile(data);
+              const adminFallback = data.role === 'admin' && (!data.allowed_tabs || data.allowed_tabs.length === 0);
+              const hasDir = adminFallback || data.allowed_tabs?.includes('directory');
+              if (!hasDir && data.allowed_tabs?.length > 0) setActiveTab(data.allowed_tabs[0] as any);
+              setIsAuthenticated(true);
+              hasInitializedAuth.current = true; // Lock engaged
+            }
+          }
+        } else {
+          if (mounted) setIsAuthenticated(false);
+        }
+      } catch (err) {
+        console.error("Auth init failed:", err);
+        if (mounted) setIsAuthenticated(false);
+      } finally {
+        if (mounted) {
+          setAuthChecking(false);
+          clearTimeout(authTimer);
+        }
+      }
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (mounted && !hasInitializedAuth.current) initAuth(session);
     });
 
-    return () => subscription.unsubscribe();
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_IN') {
+        // Only trigger auth checking if we haven't already locked in the session
+        if (!hasInitializedAuth.current) {
+          setAuthChecking(true);
+          initAuth(session);
+        }
+      } else if (event === 'SIGNED_OUT') {
+        if (mounted) {
+          hasInitializedAuth.current = false; // Release the lock
+          setIsAuthenticated(false);
+          setUserProfile(null);
+          setAuthChecking(false);
+        }
+      }
+    });
+
+    return () => {
+      mounted = false;
+      clearTimeout(authTimer);
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => { 
-    if (isAuthenticated) fetchAllData(); 
-  }, [isAuthenticated]);
+    if (isAuthenticated && userProfile) fetchAllData(); 
+  }, [isAuthenticated, userProfile]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError('');
+    setAuthChecking(true);
     
     const { error } = await supabase.auth.signInWithPassword({
       email: emailInput,
@@ -72,6 +137,7 @@ export default function AdminDashboard() {
 
     if (error) {
       setLoginError(error.message);
+      setAuthChecking(false);
     }
   };
 
@@ -79,25 +145,37 @@ export default function AdminDashboard() {
     await supabase.auth.signOut();
   };
 
-  const fetchAllData = async () => {
+  const fetchAllData = () => {
     setLoading(true);
-    const [pending, approved, categories, filters, langs, trans, ads] = await Promise.all([
-      supabase.from('restaurants').select('*').eq('status', 'pending').order('created_at', { ascending: false }),
-      supabase.from('restaurants').select('*').eq('status', 'approved').order('created_at', { ascending: false }),
-      supabase.from('custom_categories').select('*').order('created_at', { ascending: true }),
-      supabase.from('filter_options').select('*').order('name', { ascending: true }),
-      supabase.from('app_languages').select('*').order('code', { ascending: true }),
-      supabase.from('ui_translations').select('*').order('translation_key', { ascending: true }),
-      supabase.from('ad_campaigns').select('*') 
-    ]);
-    if (pending.data) setPendingSubmissions(pending.data);
-    if (approved.data) setLiveRestaurants(approved.data);
-    if (categories.data) setCustomCategories(categories.data);
-    if (filters.data) setMasterFilters(filters.data);
-    if (langs.data) setAppLanguages(langs.data);
-    if (trans.data) setUiTranslations(trans.data);
-    if (ads.data) setAdCampaigns(ads.data);
-    setLoading(false);
+    setIsSlowData(false);
+    
+    const slowDataTimer = setTimeout(() => setIsSlowData(true), 4000);
+
+    Promise.allSettled([
+      supabase.from('restaurants').select('*').eq('status', 'pending').order('created_at', { ascending: false })
+        .then(res => { if (res.data) setPendingSubmissions(res.data); }),
+        
+      supabase.from('restaurants').select('*').eq('status', 'approved').order('created_at', { ascending: false })
+        .then(res => { if (res.data) setLiveRestaurants(res.data); }),
+        
+      supabase.from('custom_categories').select('*').order('created_at', { ascending: true })
+        .then(res => { if (res.data) setCustomCategories(res.data); }),
+        
+      supabase.from('filter_options').select('*').order('name', { ascending: true })
+        .then(res => { if (res.data) setMasterFilters(res.data); }),
+        
+      supabase.from('app_languages').select('*').order('code', { ascending: true })
+        .then(res => { if (res.data) setAppLanguages(res.data); }),
+        
+      supabase.from('ui_translations').select('*').order('translation_key', { ascending: true })
+        .then(res => { if (res.data) setUiTranslations(res.data); }),
+        
+      supabase.from('ad_campaigns').select('*')
+        .then(res => { if (res.data) setAdCampaigns(res.data); })
+    ]).finally(() => {
+      setLoading(false);
+      clearTimeout(slowDataTimer);
+    });
   };
 
   const batchUpdateCoordinates = async () => {
@@ -308,14 +386,30 @@ export default function AdminDashboard() {
     else { alert(`✅ Saved Successfully!`); setEditingData(null); fetchAllData(); }
   };
 
+  const hasAccess = (tabId: string) => {
+    if (!userProfile) return false;
+    if (userProfile.role === 'admin' && (!userProfile.allowed_tabs || userProfile.allowed_tabs.length === 0)) return true;
+    return userProfile.allowed_tabs?.includes(tabId);
+  };
+
   if (authChecking) {
-    return <div className="min-h-screen flex items-center justify-center bg-gray-50 text-gray-400 font-black tracking-widest">VERIFYING ACCESS...</div>;
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-6 opacity-0 animate-in fade-in duration-500 delay-200 fill-mode-both">
+        <Icons.Sync className="w-10 h-10 animate-spin mb-6 text-gray-300" />
+        <div className="font-black tracking-widest text-gray-400 text-lg">VERIFYING ACCESS...</div>
+        {isSlowAuth && (
+          <div className="mt-6 bg-orange-50 text-orange-600 px-5 py-3 rounded-2xl text-xs font-black border border-orange-100 text-center animate-in fade-in">
+            Slow connection detected.<br/>Establishing secure session...
+          </div>
+        )}
+      </div>
+    );
   }
 
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
-        <form onSubmit={handleLogin} className="max-w-md w-full bg-white p-10 rounded-3xl shadow-xl border border-gray-200 text-center">
+        <form onSubmit={handleLogin} className="max-w-md w-full bg-white p-10 rounded-3xl shadow-xl border border-gray-200 text-center animate-in fade-in zoom-in-95 duration-500">
           <h1 className="text-3xl font-black mb-6 text-gray-900">CMS Access</h1>
           
           {loginError && <div className="mb-4 text-xs font-bold text-red-500 bg-red-50 p-3 rounded-lg">{loginError}</div>}
@@ -346,56 +440,110 @@ export default function AdminDashboard() {
   const allRestaurantsList = [...liveRestaurants, ...pendingSubmissions];
 
   return (
-    <div className="max-w-7xl mx-auto py-8 px-4 relative min-h-screen pb-20">
+    <div className="max-w-7xl mx-auto py-8 px-4 relative min-h-screen pb-20 animate-in fade-in duration-500">
+      
       <div className="flex justify-between items-end mb-8 border-b border-gray-200 pb-4">
         <div>
           <h1 className="text-4xl font-black text-gray-900 tracking-tight">Admin CMS</h1>
-          <button 
-            onClick={batchUpdateCoordinates} 
-            disabled={batchStatus?.isRunning}
-            className="mt-2 text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50"
-          >
-            {batchStatus?.isRunning 
-              ? `⚙️ Syncing... (${batchStatus.current}/${batchStatus.total})` 
-              : "📍 Missing Coordinates Sync"}
-          </button>
+          {userProfile && (
+            <div className="mt-2 text-sm font-bold text-gray-500 flex items-center gap-2">
+              Logged in as <span className="text-gray-900">{userProfile.email}</span>
+            </div>
+          )}
+          {hasAccess('directory') && (
+            <button 
+              onClick={batchUpdateCoordinates} 
+              disabled={batchStatus?.isRunning}
+              className="mt-4 text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50 flex items-center"
+            >
+              {batchStatus?.isRunning ? (
+                <><Icons.Sync className="w-3.5 h-3.5 animate-spin mr-1.5" /> Syncing... ({batchStatus.current}/{batchStatus.total})</>
+              ) : (
+                <><Icons.MapPin className="w-3.5 h-3.5 mr-1.5" /> Missing Coordinates Sync</>
+              )}
+            </button>
+          )}
         </div>
         <button onClick={handleLogout} className="text-sm font-bold text-gray-400 hover:text-red-500 transition">Logout</button>
       </div>
+      
       <div className="flex flex-wrap gap-3 mb-10">
-        <button onClick={() => setActiveTab('directory')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'directory' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Directory ({liveRestaurants.length})</button>
-        <button onClick={() => setActiveTab('pending')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'pending' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>Pending ({pendingSubmissions.length})</button>
-        <button onClick={() => setActiveTab('categories')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'categories' ? 'bg-purple-600 text-white shadow-lg' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}>⚙️ Category Hub</button>
-        <button onClick={() => setActiveTab('translations')} className={`px-6 py-2.5 rounded-full font-black text-sm transition ${activeTab === 'translations' ? 'bg-blue-600 text-white shadow-lg' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>🌐 Translations</button>
-        <button onClick={() => setActiveTab('ad_studio')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'ad_studio' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>📢 Ad Studio</button>
-        <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>👥 Team</button>
-        <button onClick={() => setActiveTab('registration')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'registration' ? 'bg-amber-600 text-white shadow-lg' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'}`}>📝 Form Builder</button>
+        {hasAccess('directory') && (
+          <button onClick={() => setActiveTab('directory')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'directory' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+            <Icons.Directory className="w-4 h-4" /> Directory ({liveRestaurants.length})
+          </button>
+        )}
+        {hasAccess('pending') && (
+          <button onClick={() => setActiveTab('pending')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'pending' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+            <Icons.Pending className="w-4 h-4" /> Pending ({pendingSubmissions.length})
+          </button>
+        )}
+        {hasAccess('categories') && (
+          <button onClick={() => setActiveTab('categories')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'categories' ? 'bg-purple-600 text-white shadow-lg' : 'bg-purple-50 text-purple-600 hover:bg-purple-100'}`}>
+            <Icons.Categories className="w-4 h-4" /> Category Hub
+          </button>
+        )}
+        {hasAccess('translations') && (
+          <button onClick={() => setActiveTab('translations')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'translations' ? 'bg-blue-600 text-white shadow-lg' : 'bg-blue-50 text-blue-600 hover:bg-blue-100'}`}>
+            <Icons.Translations className="w-4 h-4" /> Translations
+          </button>
+        )}
+        {hasAccess('ad_studio') && (
+          <button onClick={() => setActiveTab('ad_studio')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'ad_studio' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}>
+            <Icons.AdStudio className="w-4 h-4" /> Ad Studio
+          </button>
+        )}
+        {hasAccess('registration') && (
+          <button onClick={() => setActiveTab('registration')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'registration' ? 'bg-amber-600 text-white shadow-lg' : 'bg-amber-50 text-amber-600 hover:bg-amber-100'}`}>
+            <Icons.Registration className="w-4 h-4" /> Form Builder
+          </button>
+        )}
+        {hasAccess('users') && (
+          <button onClick={() => setActiveTab('users')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'users' ? 'bg-emerald-600 text-white shadow-lg' : 'bg-emerald-50 text-emerald-600 hover:bg-emerald-100'}`}>
+            <Icons.Users className="w-4 h-4" /> Team
+          </button>
+        )}
       </div>
       
-      {loading ? (
-         <div className="text-center py-20 animate-pulse text-gray-400 font-black text-xl tracking-widest">CONNECTING TO DATABASE...</div>
+      {loading && liveRestaurants.length === 0 && appLanguages.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-32 bg-white rounded-[40px] border border-gray-100 shadow-sm animate-in fade-in duration-500">
+          <Icons.Sync className="w-10 h-10 animate-spin mb-6 text-gray-300" />
+          <p className="font-black text-xl text-gray-800 tracking-tight mb-2">Syncing Database</p>
+          <p className="text-sm font-bold text-gray-400">Loading your CMS content...</p>
+          {isSlowData && (
+            <div className="mt-6 bg-orange-50 text-orange-600 px-4 py-2 rounded-full text-xs font-black flex items-center gap-2">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+              </span>
+              Slow connection detected. Still pulling data...
+            </div>
+          )}
+        </div>
       ) : (
-        <>
-          {activeTab === 'users' && <UserManagement />}
-          {activeTab === 'ad_studio' && <AdStudio adCampaigns={adCampaigns} setAdCampaigns={setAdCampaigns} liveRestaurants={liveRestaurants} activeTab={activeTab} />}
-          {activeTab === 'translations' && <Translations appLanguages={appLanguages} setAppLanguages={setAppLanguages} uiTranslations={uiTranslations} setUiTranslations={setUiTranslations} masterFilters={masterFilters} setMasterFilters={setMasterFilters} liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} updateBaseTagName={updateBaseTagName} />}
-          {activeTab === 'categories' && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
-          {activeTab === 'directory' && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
-          {activeTab === 'pending' && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
-          {activeTab === 'registration' && <RegistrationEditor />}
-        </>
+        <div className="animate-in fade-in duration-500">
+          {activeTab === 'users' && hasAccess('users') && <UserManagement />}
+          {activeTab === 'ad_studio' && hasAccess('ad_studio') && <AdStudio adCampaigns={adCampaigns} setAdCampaigns={setAdCampaigns} liveRestaurants={liveRestaurants} activeTab={activeTab} />}
+          {activeTab === 'translations' && hasAccess('translations') && <Translations appLanguages={appLanguages} setAppLanguages={setAppLanguages} uiTranslations={uiTranslations} setUiTranslations={setUiTranslations} masterFilters={masterFilters} setMasterFilters={setMasterFilters} liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} updateBaseTagName={updateBaseTagName} />}
+          {activeTab === 'categories' && hasAccess('categories') && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
+          {activeTab === 'directory' && hasAccess('directory') && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
+          {activeTab === 'pending' && hasAccess('pending') && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
+          {activeTab === 'registration' && hasAccess('registration') && <RegistrationEditor />}
+        </div>
       )}
 
       {/* Global Modals Overlays */}
       {managingCategory && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col relative overflow-hidden">
+          <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col relative overflow-hidden animate-in zoom-in-95 duration-200">
             <div className="bg-purple-600 p-8 flex justify-between items-center text-white">
               <div>
                 <h2 className="text-2xl font-black">Event Participants</h2>
                 <p className="text-purple-200 text-sm font-bold">{managingCategory}</p>
               </div>
-              <button onClick={() => setManagingCategory(null)} className="text-3xl font-black bg-purple-700 w-12 h-12 rounded-full flex items-center justify-center">✕</button>
+              <button onClick={() => setManagingCategory(null)} className="text-3xl font-black bg-purple-700 w-12 h-12 rounded-full flex items-center justify-center transition hover:bg-purple-800">
+                <Icons.Close className="w-6 h-6 text-white" />
+              </button>
             </div>
             <div className="flex-1 overflow-y-auto p-8 space-y-3 bg-gray-50">
               {allRestaurantsList.sort((a,b) => a.title.localeCompare(b.title)).map(rest => {
@@ -422,19 +570,23 @@ export default function AdminDashboard() {
 
       {editingData && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col relative">
+          <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col relative animate-in slide-in-from-bottom-8 duration-300">
             <div className="sticky top-0 bg-white/90 backdrop-blur p-8 border-b border-gray-100 z-10 flex flex-col gap-4">
               <div className="flex justify-between items-center">
                 <div>
                   <h2 className="text-3xl font-black text-gray-900">Edit Details</h2>
                   <p className="text-orange-500 font-bold">{editingData.title}</p>
                 </div>
-                <button onClick={() => setEditingData(null)} className="text-gray-400 hover:text-red-500 text-3xl font-black bg-gray-100 w-14 h-14 rounded-full flex items-center justify-center">✕</button>
+                <button onClick={() => setEditingData(null)} className="text-gray-400 hover:text-red-500 text-3xl font-black bg-gray-100 hover:bg-red-50 w-14 h-14 rounded-full flex items-center justify-center transition">
+                  <Icons.Close className="w-6 h-6" />
+                </button>
               </div>
             </div>
             <div className="p-10 space-y-16">
               <section className="p-8 bg-purple-50 rounded-[32px] border border-purple-100">
-                <h3 className="text-xl font-black text-purple-900 mb-6 flex items-center gap-2"><span>🎉</span> Participating Events & Shop Specifics</h3>
+                <h3 className="text-xl font-black text-purple-900 mb-6 flex items-center gap-2">
+                  <Icons.Categories className="w-6 h-6 text-purple-500" /> Participating Events & Shop Specifics
+                </h3>
                 <div className="grid grid-cols-1 gap-4">
                   {customCategories.map(cat => (
                     <div key={cat.id} className={`p-6 rounded-2xl border-2 transition ${editingData.other_options?.includes(cat.name) ? 'bg-white border-purple-400 shadow-md' : 'bg-white/50 border-gray-100 opacity-60'}`}>
@@ -456,7 +608,7 @@ export default function AdminDashboard() {
               {/* --- 1. PRIVATE CONTACT INFO & LOGISTICS --- */}
               <section className="space-y-4">
                 <h3 className="text-xl font-black text-gray-900 border-b pb-2 flex items-center gap-2">
-                  <span className="text-red-500">🔒</span> Private Admin Data & Logistics
+                  <Icons.Lock className="w-6 h-6 text-red-500" /> Private Admin Data & Logistics
                 </h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                   <div className="grid grid-cols-1 gap-4 bg-red-50 p-6 rounded-3xl border border-red-100">
@@ -504,7 +656,9 @@ export default function AdminDashboard() {
                         {editingData.image_urls.map((url: string, idx: number) => (
                           <div key={idx} className="relative w-28 h-28 group">
                             <img src={url} className="w-full h-full object-cover rounded-2xl shadow-sm border border-gray-200" />
-                            <button onClick={() => removeGalleryImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 shadow-md transition transform hover:scale-110">✕</button>
+                            <button onClick={() => removeGalleryImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 shadow-md transition transform hover:scale-110">
+                              <Icons.Close className="w-4 h-4" />
+                            </button>
                           </div>
                         ))}
                       </div>

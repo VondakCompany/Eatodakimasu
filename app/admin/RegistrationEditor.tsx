@@ -20,7 +20,7 @@ interface FormBlock {
   dbColumn: string; 
   required: boolean;
   validation?: 'none' | 'email' | 'url' | 'number' | 'phone';
-  conditions?: FormCondition[]; // NEW: Supports nested sub-elements
+  conditions?: FormCondition[]; 
 }
 
 interface FormSection {
@@ -43,23 +43,20 @@ interface VersionHistory {
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
 
-// ----------------------------------------------------------------------
-// THE BASELINE SCHEMA (Now utilizes nested conditions for hours)
-// ----------------------------------------------------------------------
 const BASELINE_SCHEMA: FormSchema = {
   pageTitle: "ワセメシ情報ご提供のお願い",
-  pageDescription: "私たちは早稲田大学国際教養学部の「イートチーム」と申します。\n「ワセメシ」の魅力をもっと多くの方に知っていただき、地域のお店と学生・観光客をつなぐ多言語対応のレストラン検索サイト「イートダキマス」を作成しています。\n\n✅ 掲載はすべて無料です\n✅ 頂いた情報を元に、こちらで多言語（英語等）に翻訳して掲載します\n✅ 所要時間は5〜10分程度です",
+  pageDescription: "私たちは早稲田大学国際教養学部の「イートチーム」と申します。\n「ワセメシ」の魅力をもっと多くの方に知っていただき、地域のお店と学生・観光客をつなぐ多言語対応のレストラン検索サイト「イートダキマス」を作成しています。\n\n・ 掲載はすべて無料です\n・ 頂いた情報を元に、こちらで多言語（英語等）に翻訳して掲載します\n・ 所要時間は5〜10分程度です",
   sections: [
     {
       id: "sec_1",
       title: "1. 店舗の基本情報",
       description: "",
       blocks: [
-        { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
-        { id: "b_cname", type: "text", label: "ご担当者名 (🔒 非公開)", dbColumn: "contact_name", required: false, placeholder: "例：早稲田 太郎" },
-        { id: "b_cphone", type: "text", label: "電話番号 (🔒 非公開)", dbColumn: "contact_phone", required: false, placeholder: "例：03-1234-5678", validation: "phone" },
-        { id: "b_cemail", type: "text", label: "メールアドレス (🔒 非公開)", dbColumn: "contact_email", required: false, placeholder: "例：shop@example.com", validation: "email" },
-        { id: "b_address", type: "text", label: "住所 (🌐 サイト公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
+        { id: "b_title", type: "text", label: "店舗名 (Web公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
+        { id: "b_cname", type: "text", label: "ご担当者名 (非公開)", dbColumn: "contact_name", required: false, placeholder: "例：早稲田 太郎" },
+        { id: "b_cphone", type: "text", label: "電話番号 (非公開)", dbColumn: "contact_phone", required: false, placeholder: "例：03-1234-5678", validation: "phone" },
+        { id: "b_cemail", type: "text", label: "メールアドレス (非公開)", dbColumn: "contact_email", required: false, placeholder: "例：shop@example.com", validation: "email" },
+        { id: "b_address", type: "text", label: "住所 (Web公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
       ]
     },
     {
@@ -120,7 +117,6 @@ const BASELINE_SCHEMA: FormSchema = {
     }
   ]
 };
-// ----------------------------------------------------------------------
 
 export default function RegistrationEditor() {
   const [schema, setSchema] = useState<FormSchema | null>(null);
@@ -133,7 +129,6 @@ export default function RegistrationEditor() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [zoom, setZoom] = useState(1); 
 
-  // SAFE DELETE STATE
   const [pendingDelete, setPendingDelete] = useState<{
     type: 'section' | 'block';
     sectionId: string;
@@ -190,7 +185,6 @@ export default function RegistrationEditor() {
 
   const generateId = () => Math.random().toString(36).substring(2, 9);
 
-  // --- RECURSIVE MUTATION ENGINE ---
   const mutateBlockTree = (blocks: FormBlock[], mutator: (b: FormBlock) => FormBlock | null): FormBlock[] => {
     return blocks.map(b => {
       const updated = mutator(b);
@@ -208,7 +202,6 @@ export default function RegistrationEditor() {
     }).filter(Boolean) as FormBlock[];
   };
 
-  // --- SAFE DELETE LOGIC ---
   const confirmDelete = () => {
     if (!pendingDelete || !schema) return;
     
@@ -262,7 +255,6 @@ export default function RegistrationEditor() {
     setSchema({ ...schema, sections });
   };
 
-  // --- BLOCK MANAGEMENT ---
   const createNewBlock = (type: BlockType): FormBlock => ({
     id: generateId(), type, label: `New ${type}`, required: false, dbColumn: `custom_fields.${generateId()}`,
     options: ['Option 1', 'Option 2'], content: '<p>Edit your text here.</p>'
@@ -327,7 +319,6 @@ export default function RegistrationEditor() {
     });
   };
 
-  // --- RECURSIVE CANVAS RENDERER ---
   const renderCanvasBlock = (block: FormBlock, sectionId: string) => {
     const isEditing = editingBlock?.blockId === block.id;
     
@@ -375,7 +366,6 @@ export default function RegistrationEditor() {
           </div>
         </div>
 
-        {/* Recursive rendering of conditional children */}
         {block.conditions?.map(cond => (
           <div key={cond.triggerValue} className="mt-3 ml-6 pl-4 border-l-4 border-purple-300 relative bg-purple-50/30 rounded-r-2xl py-2">
              <span className="absolute -left-3 top-4 bg-purple-600 text-white shadow-sm text-[10px] font-black px-2 py-0.5 rounded-full">IF: {cond.triggerValue}</span>
@@ -386,7 +376,6 @@ export default function RegistrationEditor() {
     );
   };
 
-  // --- RECURSIVE SIDEBAR FINDER ---
   let activeEditingBlockProps: FormBlock | null = null;
   if (schema && editingBlock) {
     const findBlock = (blocks: FormBlock[]): FormBlock | null => {
@@ -427,8 +416,8 @@ export default function RegistrationEditor() {
               <button onClick={() => setZoom(z => Math.min(z + 0.1, 1.5))} className="w-8 h-8 rounded-full flex items-center justify-center font-black text-gray-500 hover:bg-white hover:shadow-sm transition">+</button>
             </div>
             <div className="h-6 w-px bg-gray-300"></div>
-            <button onClick={() => setShowHistoryModal(true)} className="bg-amber-50 text-amber-600 border border-amber-200 px-4 py-2 rounded-full font-bold text-sm hover:bg-amber-100 transition">🕒 History</button>
-            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`px-4 py-2 rounded-full font-bold text-sm transition ${isSidebarOpen ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>⚙️ Props</button>
+            <button onClick={() => setShowHistoryModal(true)} className="bg-amber-50 text-amber-600 border border-amber-200 px-4 py-2 rounded-full font-bold text-sm hover:bg-amber-100 transition">History</button>
+            <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`px-4 py-2 rounded-full font-bold text-sm transition ${isSidebarOpen ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Properties</button>
             <button onClick={saveConfig} disabled={saving} className="bg-orange-600 text-white px-6 py-2 rounded-full font-black text-sm hover:bg-orange-700 shadow-md transition disabled:opacity-50">{saving ? 'Saving...' : 'Publish'}</button>
           </div>
         </div>
@@ -444,7 +433,7 @@ export default function RegistrationEditor() {
           {schema.sections.map((section, index) => (
             <div key={section.id} draggable onDragStart={() => (dragSectionItem.current = index)} onDragEnter={() => (dragSectionOverItem.current = index)} onDragEnd={handleSort} className="bg-white p-6 rounded-[32px] border-2 border-transparent hover:border-orange-200 shadow-sm transition relative group cursor-move z-10">
               <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition flex gap-2">
-                <span className="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-1 rounded-full border border-gray-200">⋮⋮ Drag to reorder</span>
+                <span className="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-1 rounded-full border border-gray-200">Drag to reorder</span>
                 <button onClick={() => setPendingDelete({ type: 'section', sectionId: section.id })} className="bg-red-100 text-red-600 w-8 h-8 rounded-full font-bold flex items-center justify-center hover:bg-red-200">✕</button>
               </div>
 
@@ -455,7 +444,6 @@ export default function RegistrationEditor() {
                 {section.blocks.map(block => renderCanvasBlock(block, section.id))}
               </div>
 
-              {/* ADVANCED ADD TOOLS */}
               <div className="mt-6 flex flex-wrap gap-2 border-t border-gray-200 pt-4 cursor-default">
                 <span className="text-xs font-bold text-gray-400 py-1 mr-2">Add Element:</span>
                 <button onClick={() => addBlockToSection(section.id, 'text')} className="text-xs font-bold bg-gray-50 border border-gray-200 px-3 py-1.5 rounded-lg hover:bg-orange-50 hover:text-orange-600 transition">+ Text</button>
@@ -545,7 +533,6 @@ export default function RegistrationEditor() {
                 </div>
               )}
 
-              {/* DYNAMIC SUB-ELEMENT BUILDER */}
               {['select', 'checkbox', 'radio', 'hours_source', 'photo_method'].includes(activeEditingBlockProps.type) && (
                 <div className="pt-6 border-t border-gray-200">
                    <h4 className="text-xs font-black text-purple-600 uppercase tracking-widest mb-4">Conditional Logic</h4>
@@ -576,7 +563,7 @@ export default function RegistrationEditor() {
               <div className="pt-6 border-t border-gray-200">
                 <label className="block text-xs font-black text-blue-500 uppercase tracking-widest mb-2">Database Mapping (Data Key)</label>
                 <p className="text-[10px] font-bold text-red-500 bg-red-50 p-2 rounded mb-2 border border-red-100">
-                  ⚠️ WARNING: Changing an established key will orphan past data.
+                  WARNING: Changing an established key will orphan past data.
                 </p>
                 <input type="text" value={activeEditingBlockProps.dbColumn} onChange={e => updateBlock(editingBlock.sectionId, activeEditingBlockProps!.id, { dbColumn: e.target.value })} className="w-full p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., title, custom_fields.wifi" />
               </div>

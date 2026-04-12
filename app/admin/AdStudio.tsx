@@ -2,6 +2,7 @@
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
+import { Icons } from './shared';
 
 export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants, activeTab }: any) {
   const [previewMode, setPreviewMode] = useState<'desktop' | 'mobile'>('desktop');
@@ -24,7 +25,6 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
   const [previewUrl, setPreviewUrl] = useState('/'); 
   const [previewContext, setPreviewContext] = useState<'home' | 'service_page' | 'restaurant_template' | 'restaurant_specific'>('home');
   
-  // Converted to local state to allow uploading and deleting
   const [libraryAssets, setLibraryAssets] = useState<string[]>([
      'https://picsum.photos/seed/3/400/600',
      'https://picsum.photos/seed/4/400/600',
@@ -75,7 +75,6 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
     return () => clearInterval(interval);
   }, [activeTab, previewMode, previewUrl]);
 
-  // Handle uploading new ad media to Supabase
   const handleAssetUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -95,7 +94,6 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
     }
   };
 
-  // Remove an asset from the local grid
   const removeAsset = (index: number) => {
     if (confirm('Remove this asset from your library?')) {
       setLibraryAssets(prev => prev.filter((_, i) => i !== index));
@@ -120,7 +118,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
     if (error) alert(`Error saving ads: ${error.message}`);
     else {
       setAdCampaigns(localAds); 
-      alert('✅ All ads saved to database!');
+      alert('All ads saved to database!');
     }
   };
 
@@ -260,9 +258,9 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
             <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-1">Drag to Canvas</p>
           </div>
           <div className="p-5 overflow-y-auto flex-1 space-y-8">
-             <label className="w-full block border-2 border-dashed border-indigo-300 bg-indigo-50/50 rounded-2xl p-6 text-center hover:bg-indigo-50 transition cursor-pointer group">
+             <label className="w-full flex flex-col items-center justify-center border-2 border-dashed border-indigo-300 bg-indigo-50/50 rounded-2xl p-6 text-center hover:bg-indigo-50 transition cursor-pointer group">
                <input type="file" accept="image/*" className="hidden" onChange={handleAssetUpload} disabled={uploadingAsset} />
-               <span className="block text-3xl mb-2 group-hover:-translate-y-1 transition-transform">☁️</span>
+               <svg className="w-8 h-8 text-indigo-500 mb-2 group-hover:-translate-y-1 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
                <span className="text-xs font-black text-indigo-600">{uploadingAsset ? 'Uploading...' : 'Upload Image'}</span>
              </label>
              <div>
@@ -274,10 +272,10 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
                      <button 
                        onMouseDown={(e) => e.stopPropagation()} 
                        onClick={(e) => { e.stopPropagation(); removeAsset(i); }} 
-                       className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-[10px] opacity-0 group-hover:opacity-100 shadow-md transition transform hover:scale-110 z-50 cursor-pointer"
+                       className="absolute top-1 right-1 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center opacity-0 group-hover:opacity-100 shadow-md transition transform hover:scale-110 z-50 cursor-pointer"
                        title="Delete Asset"
                      >
-                       ✕
+                       <Icons.Close className="w-3 h-3" />
                      </button>
                    </div>
                  ))}
@@ -290,7 +288,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
       <div className="flex-1 bg-gray-200 overflow-auto relative shadow-inner flex flex-col" onClick={() => { setSelectedAdId(null); setIsInspectorOpen(false); }} onDrop={handleDrop} onDragOver={(e) => e.preventDefault()}>
         <div className="sticky top-6 left-1/2 transform -translate-x-1/2 w-max bg-white/90 backdrop-blur-md p-1.5 rounded-full shadow-[0_5px_15px_rgba(0,0,0,0.1)] border border-gray-200 flex items-center gap-2 z-40 mb-10">
           <button onClick={(e) => { e.stopPropagation(); setShowAssets(!showAssets); }} className={`px-4 py-2 rounded-full text-xs font-bold transition-all flex items-center gap-2 ${showAssets ? 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100' : 'text-gray-500 hover:bg-gray-100'}`}>
-            <span className={`transform transition-transform ${showAssets ? '' : 'rotate-180'}`}>◀</span>
+            <span className={`font-black ${showAssets ? '' : 'rotate-180 transform transition-transform'}`}>‹</span>
           </button>
           <div className="w-px h-6 bg-gray-200 mx-1"></div>
           
@@ -310,19 +308,19 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
               className="bg-transparent outline-none text-xs font-bold text-gray-900 w-44 cursor-pointer truncate"
             >
               <optgroup label="Main Pages">
-                <option value="/">🏠 Homepage</option>
-                <option value="/register">📝 Register Shop</option>
+                <option value="/">Homepage</option>
+                <option value="/register">Register Shop</option>
               </optgroup>
               <optgroup label="Templates">
-                <option value="template">🍽️ All Restaurant Pages</option>
+                <option value="template">All Restaurant Pages</option>
               </optgroup>
               <optgroup label="Specific Shops">
                 {liveRestaurants.map((r: any) => (
-                   <option key={r.id} value={`/restaurant/${r.id}`}>↳ {r.title}</option>
+                   <option key={r.id} value={`/restaurant/${r.id}`}> {r.title}</option>
                 ))}
               </optgroup>
               <optgroup label="Other">
-                <option value="custom">🔗 Custom Path...</option>
+                <option value="custom">Custom Path...</option>
               </optgroup>
             </select>
           </div>
@@ -340,7 +338,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
           
           <div className="w-px h-6 bg-gray-200 mx-1"></div>
           <button onClick={(e) => { e.stopPropagation(); saveAllAds(); }} disabled={isSavingAds} className="px-5 py-2 rounded-full text-xs font-black bg-indigo-600 text-white shadow-lg hover:bg-indigo-700 transition-colors disabled:opacity-50 flex items-center gap-2">
-            {isSavingAds ? '🔄 SAVING...' : '💾 SAVE LAYOUT'}
+            {isSavingAds ? 'SAVING...' : 'SAVE LAYOUT'}
           </button>
         </div>
         
@@ -355,7 +353,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
                      <div key={ad.id} onMouseDown={(e) => { e.stopPropagation(); handleMoveStart(e, ad); }} onDoubleClick={(e) => { e.stopPropagation(); setIsInspectorOpen(true); }} className={`absolute overflow-visible cursor-grab active:cursor-grabbing hover:ring-2 hover:ring-indigo-300 transition-shadow pointer-events-auto ${selectedAdId === ad.id ? 'ring-4 ring-indigo-500 z-50' : 'ring-1 ring-gray-300 z-10 opacity-95'}`} style={{ left: ad.x, top: ad.y - desktopScrollY, width: ad.w, height: ad.h, borderRadius: '1.5rem' }}>
                        <img src={ad.image_url} className="w-full h-full object-cover rounded-[1.5rem] pointer-events-none" />
                        {selectedAdId === ad.id && (
-                         <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); deleteAdFromDb(ad.id); }} className="absolute -top-3 -right-3 bg-red-500 text-white w-7 h-7 rounded-full text-[10px] font-black shadow-lg hover:bg-red-600 transition flex items-center justify-center z-50">✕</button>
+                         <button onMouseDown={(e) => e.stopPropagation()} onClick={(e) => { e.stopPropagation(); deleteAdFromDb(ad.id); }} className="absolute -top-3 -right-3 bg-red-500 text-white w-7 h-7 rounded-full shadow-lg hover:bg-red-600 transition flex items-center justify-center z-50"><Icons.Close className="w-4 h-4" /></button>
                        )}
                        {selectedAdId === ad.id && (
                          <>
@@ -390,7 +388,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
                <h2 className="font-black text-gray-900 text-lg">Inspector</h2>
                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mt-0.5">Edit Ad Logic</p>
              </div>
-             <button onClick={() => setIsInspectorOpen(false)} className="text-gray-400 hover:text-red-500 font-black bg-white w-8 h-8 rounded-full shadow-sm flex items-center justify-center border border-gray-200 transition">✕</button>
+             <button onClick={() => setIsInspectorOpen(false)} className="text-gray-400 hover:text-red-500 bg-white w-8 h-8 rounded-full shadow-sm flex items-center justify-center border border-gray-200 transition"><Icons.Close className="w-4 h-4" /></button>
            </div>
            
            <div className="flex border-b border-gray-200 bg-white shrink-0">
@@ -415,17 +413,17 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
                       <div className="pt-4 border-t border-gray-100">
                         <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2 flex items-center gap-2">Target Page <span className="text-[9px] bg-indigo-100 text-indigo-600 px-2 py-0.5 rounded uppercase">Current</span></label>
                         <select value={activeAd.target_page} onChange={(e) => updateAd({target_page: e.target.value})} className="w-full p-3 bg-indigo-50 border border-indigo-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none text-indigo-900 shadow-sm cursor-pointer">
-                          <option value="*">🌐 All Pages (Global)</option>
-                          <option value="/">🏠 Homepage Only</option>
-                          <option value="/register">📝 Register Page Only</option>
-                          <option value="/restaurant/*">🍽️ All Restaurant Pages (Template)</option>
-                          {previewContext === 'service_page' && previewUrl !== '/register' && (<option value={previewUrl}>📄 {previewUrl} Only</option>)}
-                          {previewContext === 'restaurant_specific' && (<option value={previewUrl}>🏪 This Specific Shop Only</option>)}
-                          {activeAd.target_page.startsWith('/restaurant/') && activeAd.target_page !== '/restaurant/*' && previewUrl !== activeAd.target_page && (<option value={activeAd.target_page}>🏪 Specific Shop ({activeAd.target_page.split('/').pop()?.slice(0,8)}...)</option>)}
+                          <option value="*">All Pages (Global)</option>
+                          <option value="/">Homepage Only</option>
+                          <option value="/register">Register Page Only</option>
+                          <option value="/restaurant/*">All Restaurant Pages</option>
+                          {previewContext === 'service_page' && previewUrl !== '/register' && (<option value={previewUrl}>{previewUrl} Only</option>)}
+                          {previewContext === 'restaurant_specific' && (<option value={previewUrl}>This Specific Shop Only</option>)}
+                          {activeAd.target_page.startsWith('/restaurant/') && activeAd.target_page !== '/restaurant/*' && previewUrl !== activeAd.target_page && (<option value={activeAd.target_page}>Specific Shop ({activeAd.target_page.split('/').pop()?.slice(0,8)}...)</option>)}
                         </select>
                       </div>
                       <div className="pt-4 border-t border-gray-100">
-                        <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block mb-2">📱 Mobile Behavior</label>
+                        <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block mb-2">Mobile Behavior</label>
                         <select value={activeAd.mobile_fallback} onChange={(e) => updateAd({mobile_fallback: e.target.value})} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:ring-2 focus:ring-indigo-500 outline-none text-gray-900 mb-3">
                           {isGridPage && <option value="inline">Inline Grid Injection</option>}
                           <option value="sticky">Sticky Bottom Banner</option>
@@ -438,7 +436,7 @@ export default function AdStudio({ adCampaigns, setAdCampaigns, liveRestaurants,
                         )}
                       </div>
                       <div className="pt-4 border-t border-gray-100">
-                        <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block mb-2">💻 Desktop Layout</label>
+                        <label className="text-[10px] font-black text-indigo-600 uppercase tracking-widest block mb-2">Desktop Layout</label>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
                             <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Width (px)</label>

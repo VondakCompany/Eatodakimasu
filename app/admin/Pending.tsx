@@ -1,7 +1,7 @@
 // Pending.tsx
 'use client';
 import { useState } from 'react';
-import { RestaurantCard } from './shared';
+import { RestaurantCard, Icons } from './shared';
 
 export default function Pending({ 
   restaurants, 
@@ -25,7 +25,7 @@ export default function Pending({
     <div>
       <div className="mb-8">
         <div className="relative shadow-sm rounded-3xl bg-white border border-gray-200 max-w-2xl">
-          <span className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 text-xl">🔍</span>
+          <Icons.Search className="absolute left-6 top-1/2 -translate-y-1/2 text-gray-400 w-6 h-6" />
           <input
             type="text"
             value={searchQuery}
@@ -38,7 +38,7 @@ export default function Pending({
               onClick={() => setSearchQuery('')}
               className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center transition"
             >
-              ✕
+              <Icons.Close className="w-5 h-5" />
             </button>
           )}
         </div>
@@ -51,10 +51,10 @@ export default function Pending({
             <RestaurantCard 
               key={restaurant.id} 
               restaurant={restaurant} 
-              tab="pending" 
-              onEdit={onEdit} 
-              onStatusUpdate={onStatusUpdate} 
-              onDelete={onDelete} 
+              tab="pending"
+              onEdit={onEdit}
+              onStatusUpdate={onStatusUpdate}
+              onDelete={onDelete}
             />
           ))}
         </div>
