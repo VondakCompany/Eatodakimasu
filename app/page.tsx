@@ -17,7 +17,6 @@ const CAMPUSES = {
 export default function Home() {
   const { currentLang, t } = useLanguage();
 
-  // PRE-REGISTER HIDDEN UI STRINGS SO AUTODETECT CATCHES THEM INSTANTLY
   if (process.env.NODE_ENV === 'development') {
     t('ad_sticky_title', 'Special Promo');
     t('ad_sponsored_label', 'Sponsored');
@@ -54,7 +53,6 @@ export default function Home() {
   const [payments, setPayments] = useState<string[]>([]);
   const [otherOptions, setOtherOptions] = useState<string[]>([]);
   
-  // Boolean Filters
   const [openNowOnly, setOpenNowOnly] = useState(false); 
   const [takeoutOnly, setTakeoutOnly] = useState(false);
   
@@ -71,6 +69,7 @@ export default function Home() {
   const [selectedAdId, setSelectedAdId] = useState<string | null>(null);
   
   const [loading, setLoading] = useState(true);
+  const [isSlowData, setIsSlowData] = useState(false); // Slow Network Detection
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
   const [page, setPage] = useState(0);
@@ -132,31 +131,34 @@ export default function Home() {
     );
   };
 
+  // Resilient, non-blocking metadata fetch
   useEffect(() => {
-    const fetchFiltersEventsAndAds = async () => {
-      const [filtersRes, eventsRes, adsRes] = await Promise.all([
-        supabase.from('filter_options').select('*').order('name'),
-        supabase.from('custom_categories').select('*').order('created_at'),
+    const fetchFiltersEventsAndAds = () => {
+      Promise.allSettled([
+        supabase.from('filter_options').select('*').order('name')
+          .then(res => { if (res.data) setMasterFilters(res.data); }),
+          
+        supabase.from('custom_categories').select('*').order('created_at')
+          .then(res => {
+            if (res.data) {
+              const today = new Date().toISOString().split('T')[0]; 
+              const validEvents = res.data.filter(e => {
+                if (e.is_constant) return true;
+                const start = e.start_date ? e.start_date.split('T')[0] : null;
+                const end = e.end_date ? e.end_date.split('T')[0] : null;
+                if (!start && !end) return true;
+                if (start && end) return today >= start && today <= end;
+                if (start) return today >= start;
+                if (end) return today <= end;
+                return true;
+              });
+              setActiveEvents(validEvents);
+            }
+          }),
+          
         supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/'])
+          .then(res => { if (res.data && !isEditor) setAds(res.data); })
       ]);
-
-      if (filtersRes.data) setMasterFilters(filtersRes.data);
-      if (adsRes.data && !isEditor) setAds(adsRes.data); 
-      
-      if (eventsRes.data) {
-        const today = new Date().toISOString().split('T')[0]; 
-        const validEvents = eventsRes.data.filter(e => {
-          if (e.is_constant) return true;
-          const start = e.start_date ? e.start_date.split('T')[0] : null;
-          const end = e.end_date ? e.end_date.split('T')[0] : null;
-          if (!start && !end) return true;
-          if (start && end) return today >= start && today <= end;
-          if (start) return today >= start;
-          if (end) return today <= end;
-          return true;
-        });
-        setActiveEvents(validEvents);
-      }
     };
     fetchFiltersEventsAndAds();
   }, [isEditor]);
@@ -173,18 +175,20 @@ export default function Home() {
     const Δλ = (lon2-lon1) * Math.PI/180;
     const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ/2) * Math.sin(Δλ/2);
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); 
-    const straightLineDist = R * c;
-    return straightLineDist * 1.3; 
+    return R * c * 1.3; 
   };
 
+  // Main debounced query with slow network detection
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (!hasMore && page !== 0) return;
+      
       setLoading(true);
+      setIsSlowData(false);
+      const slowTimer = setTimeout(() => setIsSlowData(true), 4000);
 
       let dbQuery = supabase.from('restaurants').select('*', { count: 'exact' }).eq('status', 'approved');
 
-      // Database-level filters
       if (query.trim()) {
         const tokens = query.replace(/　/g, ' ').split(/\s+/).filter(Boolean);
         tokens.forEach(token => { dbQuery = dbQuery.or(`title.ilike.%${token}%,description.ilike.%${token}%,address.ilike.%${token}%,takeout_menu.ilike.%${token}%`); });
@@ -194,19 +198,14 @@ export default function Home() {
       if (restrictions.length > 0) dbQuery = dbQuery.overlaps('food_restrictions', restrictions);
       if (payments.length > 0) dbQuery = dbQuery.overlaps('payment_methods', payments);
       if (otherOptions.length > 0) dbQuery = dbQuery.overlaps('other_options', otherOptions);
-      
       if (takeoutOnly) dbQuery = dbQuery.eq('takeout_available', true);
-      
-      // Because we collect exactly these strings in the form, we can query Supabase directly
       if (stayDuration) dbQuery = dbQuery.eq('avg_stay_time', stayDuration);
 
-      // Client-side processing triggers
       const requiresClientProcessing = userLocation || campusSort || seatCapacity || openNowOnly || maxWalkTime;
 
       if (requiresClientProcessing) {
         const { data, error } = await dbQuery.limit(1000);
         if (!error && data) {
-          
           let processed = data.map(r => {
             let dist_meters = undefined;
             let campus_dist_meters = undefined;
@@ -244,7 +243,6 @@ export default function Home() {
             processed = processed.filter(r => {
               const dist = campusSort ? r.campus_dist_meters : r.dist_meters;
               if (dist === undefined) return false;
-              // 80 meters per minute is the standard walking speed conversion
               return dist <= (Number(maxWalkTime) * 80); 
             });
           }
@@ -272,8 +270,11 @@ export default function Home() {
           if (data.length < ITEMS_PER_PAGE) setHasMore(false);
         }
       }
+      
       setLoading(false);
+      clearTimeout(slowTimer);
     }, 250);
+    
     return () => clearTimeout(delayDebounceFn);
   }, [query, price, cuisines, restrictions, payments, otherOptions, page, userLocation, openNowOnly, takeoutOnly, campusSort, seatCapacity, maxWalkTime, stayDuration]);
 
@@ -398,7 +399,6 @@ export default function Home() {
                    <button onClick={clearFilters} className="lg:hidden mb-6 w-full text-sm font-bold text-orange-600 py-3 bg-orange-50 rounded-xl border border-orange-100 active:bg-orange-100 transition">{t('btn_clear_filters', '条件をリセットする')}</button>
                 )}
                 
-                {/* OPEN NOW TOGGLE */}
                 <div className="mb-6">
                   <label className="flex items-center cursor-pointer p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:border-orange-200 transition">
                     <input type="checkbox" checked={openNowOnly} onChange={(e) => setOpenNowOnly(e.target.checked)} className="h-6 w-6 lg:h-5 lg:w-5 accent-orange-600 cursor-pointer" />
@@ -421,7 +421,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* DISTANCE FILTER */}
                 <div className="mb-8">
                   <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_distance', '距離 (徒歩)')}</label>
                   {(!campusSort && !userLocation) ? (
@@ -466,7 +465,6 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* STAY TIME FILTER */}
                 <div className="mb-8">
                   <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_stay_time', '平均滞在時間')}</label>
                   <div className="flex flex-wrap gap-2">
@@ -495,7 +493,6 @@ export default function Home() {
                   <input type="range" min="500" max="3000" step="100" value={price} onChange={(e) => setPrice(parseInt(e.target.value))} className="w-full h-2 bg-gray-200 rounded-lg accent-orange-600 cursor-pointer" />
                 </div>
 
-                {/* TAKEOUT TOGGLE (Moved below Budget) */}
                 <div className="mb-8">
                   <label className="flex items-center cursor-pointer p-4 bg-gray-50 rounded-2xl border border-gray-100 hover:border-orange-200 transition">
                     <input type="checkbox" checked={takeoutOnly} onChange={(e) => setTakeoutOnly(e.target.checked)} className="h-6 w-6 lg:h-5 lg:w-5 accent-orange-600 cursor-pointer" />
@@ -544,7 +541,12 @@ export default function Home() {
             <div className="flex justify-between items-end mb-6 border-b border-gray-200 pb-4">
               <h2 className="text-2xl font-black text-gray-900 tracking-tight">{t('label_search_results', '検索結果')}</h2>
               <div className="flex items-center gap-3">
-                {loading && page === 0 && <span className="text-orange-500 font-bold text-sm animate-pulse">{t('searching', '検索中...')}</span>}
+                {loading && page === 0 && (
+                  <span className="text-orange-500 font-bold text-sm animate-pulse flex items-center gap-2">
+                    {t('searching', '検索中...')}
+                    {isSlowData && <span className="text-[10px] bg-orange-100 px-2 py-0.5 rounded-full whitespace-nowrap">Slow connection</span>}
+                  </span>
+                )}
                 <span className="text-gray-500 font-bold text-sm bg-white border border-gray-200 px-4 py-1.5 rounded-full shadow-sm">{t('label_places_count', '{{count}} 店舗', { count: totalCount })}</span>
               </div>
             </div>

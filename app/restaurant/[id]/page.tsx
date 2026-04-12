@@ -11,25 +11,34 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const [allCategories, setAllCategories] = useState<any[]>([]); 
   const [ads, setAds] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [isSlowData, setIsSlowData] = useState(false); // Slow Network Detection
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
+  // Resilient, non-blocking fetch
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
+      setIsSlowData(false);
+      
+      const slowTimer = setTimeout(() => setIsSlowData(true), 4000);
       const resolvedParams = await params; 
       
-      const [resResult, catResult, adsResult] = await Promise.all([
-        supabase.from('restaurants').select('*').eq('id', resolvedParams.id).single(),
-        supabase.from('custom_categories').select('*'),
+      // Using Promise.allSettled guarantees the restaurant renders even if ads timeout
+      await Promise.allSettled([
+        supabase.from('restaurants').select('*').eq('id', resolvedParams.id).single()
+          .then(res => { if (res.data) setRestaurant(res.data); }),
+          
+        supabase.from('custom_categories').select('*')
+          .then(res => { if (res.data) setAllCategories(res.data); }),
+          
         supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/restaurant/*', `/restaurant/${resolvedParams.id}`])
+          .then(res => { if (res.data) setAds(res.data); })
       ]);
 
-      if (resResult.data) setRestaurant(resResult.data);
-      if (catResult.data) setAllCategories(catResult.data);
-      if (adsResult.data) setAds(adsResult.data);
       setLoading(false);
+      clearTimeout(slowTimer);
     };
 
     fetchData();
@@ -37,8 +46,18 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center min-h-[50vh]">
-        <span className="text-orange-500 font-bold text-xl animate-pulse">{t('searching', '検索中...')}</span>
+      <div className="flex flex-col justify-center items-center min-h-[60vh] px-6">
+        <div className="w-10 h-10 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin mb-6"></div>
+        <span className="text-orange-900 font-black text-xl tracking-widest mb-2">{t('searching', '検索中...')}</span>
+        {isSlowData && (
+           <div className="mt-4 bg-orange-50 text-orange-600 px-4 py-2 rounded-full text-xs font-black flex items-center gap-2 animate-in fade-in">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+              </span>
+              通信環境が不安定です...
+           </div>
+        )}
       </div>
     );
   }
@@ -78,7 +97,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const displayTakeout = currentLang === 'ja' ? restaurant.takeout_menu : (restaurant.translations?.[currentLang]?.takeout_menu || restaurant.takeout_menu);
 
   const mapEmbedUrl = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}&t=&z=16&ie=UTF8&iwloc=&output=embed` : null;
-  const mapOutboundLink = restaurant.address ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(restaurant.address)}` : null;
+  const mapOutboundLink = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}` : null;
 
   const handleShare = async () => {
     const shareData = { title: displayTitle, text: displayDescription?.substring(0, 50) + '...', url: window.location.href };
