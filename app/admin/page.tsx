@@ -70,10 +70,23 @@ export default function AdminDashboard() {
             await supabase.auth.signOut();
             if (mounted) setIsAuthenticated(false);
           } else {
+            
+            // ROOT ADMIN GOD-MODE CHECK
+            const { data: rootAdmin } = await supabase.from('user_profiles')
+              .select('id')
+              .eq('role', 'admin')
+              .order('created_at', { ascending: true })
+              .limit(1)
+              .single();
+              
+            const isRootAdmin = rootAdmin?.id === session.user.id;
+
             if (mounted) {
-              setUserProfile(data);
+              setUserProfile({ ...data, isRootAdmin }); // Inject true root status into profile
+              
               const adminFallback = data.role === 'admin' && (!data.allowed_tabs || data.allowed_tabs.length === 0);
-              const hasDir = adminFallback || data.allowed_tabs?.includes('directory');
+              const hasDir = isRootAdmin || adminFallback || data.allowed_tabs?.includes('directory');
+              
               if (!hasDir && data.allowed_tabs?.length > 0) setActiveTab(data.allowed_tabs[0] as any);
               setIsAuthenticated(true);
               hasInitializedAuth.current = true; // Lock engaged
@@ -99,14 +112,13 @@ export default function AdminDashboard() {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_IN') {
-        // Only trigger auth checking if we haven't already locked in the session
         if (!hasInitializedAuth.current) {
           setAuthChecking(true);
           initAuth(session);
         }
       } else if (event === 'SIGNED_OUT') {
         if (mounted) {
-          hasInitializedAuth.current = false; // Release the lock
+          hasInitializedAuth.current = false; 
           setIsAuthenticated(false);
           setUserProfile(null);
           setAuthChecking(false);
@@ -388,6 +400,10 @@ export default function AdminDashboard() {
 
   const hasAccess = (tabId: string) => {
     if (!userProfile) return false;
+    
+    // GOD MODE: The Root Admin always bypasses array checks to prevent lockouts
+    if (userProfile.isRootAdmin) return true;
+    
     if (userProfile.role === 'admin' && (!userProfile.allowed_tabs || userProfile.allowed_tabs.length === 0)) return true;
     return userProfile.allowed_tabs?.includes(tabId);
   };

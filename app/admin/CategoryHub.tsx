@@ -1,8 +1,58 @@
-// CategoryHub.tsx
 'use client';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { Icons } from './shared';
+
+// New Controlled Component to handle local saving state and Enter key submissions
+function FilterRow({ filter, updateBaseTagName, deleteMasterFilter }: any) {
+  const [val, setVal] = useState(filter.name);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Sync local state if the database is updated externally
+  useEffect(() => {
+    setVal(filter.name);
+  }, [filter.name]);
+
+  const handleSave = () => {
+    const trimmed = val.trim();
+    // Only trigger a database hit if the value actually changed
+    if (trimmed && trimmed !== filter.name) {
+      setIsSaving(true);
+      // Fire and forget so it safely completes even if the user switches tabs
+      updateBaseTagName(filter.id, filter.name, trimmed, filter.type).finally(() => {
+        setIsSaving(false);
+      });
+    } else {
+      setVal(filter.name); // Revert back if they accidentally deleted all text
+    }
+  };
+
+  return (
+    <div className="group flex justify-between items-center p-4 bg-white border border-gray-100 rounded-2xl hover:border-orange-200 transition shadow-sm relative">
+      <input
+        type="text"
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        onBlur={handleSave}
+        onKeyDown={(e) => { 
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            e.currentTarget.blur(); // This safely triggers the onBlur save above
+          }
+        }}
+        disabled={isSaving}
+        className={`text-sm font-black text-gray-800 bg-transparent outline-none border-b border-transparent focus:border-orange-300 w-4/5 transition-opacity ${isSaving ? 'opacity-40 cursor-wait' : 'opacity-100'}`}
+      />
+      <button 
+        onClick={() => deleteMasterFilter(filter.id)} 
+        disabled={isSaving}
+        className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-0"
+      >
+        <Icons.Close className="w-4 h-4" />
+      </button>
+    </div>
+  );
+}
 
 export default function CategoryHub({ 
   customCategories, 
@@ -197,12 +247,12 @@ export default function CategoryHub({
               <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2">{type}s</h3>
               <div className="flex flex-col gap-3">
                 {masterFilters.filter((f: any) => f.type === type).map((filter: any) => (
-                  <div key={filter.id} className="group flex justify-between items-center p-4 bg-white border border-gray-100 rounded-2xl hover:border-orange-200 transition shadow-sm relative">
-                    <input type="text" defaultValue={filter.name} 
-                           onBlur={(e) => updateBaseTagName(filter.id, filter.name, e.target.value, filter.type)}
-                           className="text-sm font-black text-gray-800 bg-transparent outline-none border-b border-transparent focus:border-orange-300 w-4/5" />
-                    <button onClick={() => deleteMasterFilter(filter.id)} className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition"><Icons.Close className="w-4 h-4" /></button>
-                  </div>
+                  <FilterRow 
+                    key={filter.id} 
+                    filter={filter} 
+                    updateBaseTagName={updateBaseTagName} 
+                    deleteMasterFilter={deleteMasterFilter} 
+                  />
                 ))}
               </div>
             </div>
