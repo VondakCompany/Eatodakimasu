@@ -356,7 +356,18 @@ export default function Home() {
         )}
 
         <div className="w-full max-w-3xl mx-auto px-4">
-          <h1 className="text-4xl md:text-5xl font-black text-center text-gray-900 mb-6 md:mb-8 tracking-tight">Eatodakimasu</h1>
+          <div className="flex justify-center mb-6 md:mb-8">
+            <div className="relative inline-flex items-center">
+              <h1 className="text-4xl md:text-5xl font-black text-center text-gray-900 tracking-tight z-10">
+                Eatodakimasu
+              </h1>
+              <img 
+                src="/eato-okuma-trans.png" 
+                alt="Okuma Auditorium sketch" 
+                className="absolute left-full md:translate-x-[-110px] md:translate-y-[20px] translate-x-[-60px] translate-y-[8px] h-20 md:h-36 object-contain pointer-events-none"
+              />
+            </div>
+          </div>
           
           <div className="flex flex-col sm:flex-row gap-3">
             <div className="relative shadow-lg rounded-2xl group bg-white flex-1">
