@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Icons } from './shared';
+import { Icons } from '@/app/admin/shared';
 
 // New Controlled Component to handle local saving state and Enter key submissions
 function FilterRow({ filter, updateBaseTagName, deleteMasterFilter }: any) {
@@ -104,12 +104,25 @@ export default function CategoryHub({
   };
 
   const deleteCategory = async (id: string, name: string) => {
-    if (confirm(`Delete event "${name}"?`)) {
+    if (confirm(`Delete event "${name}"? This will also remove this tag from any participating restaurants.`)) {
+      // 1. Delete from categories table
       const { error } = await supabase.from('custom_categories').delete().eq('id', id);
+      
       if (error) {
         console.error("Delete Error:", error);
         alert(`Failed to delete event: ${error.message}`);
       } else {
+        // 2. Scrub from all restaurants to prevent "ghost" tags
+        const { data: restaurants } = await supabase.from('restaurants').select('id, other_options').contains('other_options', [name]);
+        
+        if (restaurants && restaurants.length > 0) {
+          const updatePromises = restaurants.map(r => {
+            const newOptions = (r.other_options || []).filter((opt: string) => opt !== name);
+            return supabase.from('restaurants').update({ other_options: newOptions }).eq('id', r.id);
+          });
+          await Promise.all(updatePromises);
+        }
+        
         fetchAllData();
       }
     }
@@ -154,6 +167,20 @@ export default function CategoryHub({
     }
   };
 
+  // Deletes an entire custom category from the Master Filters
+  const deleteMasterFilterCategory = async (type: string) => {
+    const typeName = type.charAt(0).toUpperCase() + type.slice(1);
+    if (confirm(`Permanently delete the entire "${typeName}" category and all its tags?`)) {
+      const { error } = await supabase.from('filter_options').delete().eq('type', type);
+      if (error) {
+        console.error("Delete Category Error:", error);
+        alert(`Failed to delete category: ${error.message}`);
+      } else {
+        fetchAllData();
+      }
+    }
+  };
+
   // Combine standard types with any newly created custom types
   const baseTypes = ['cuisine', 'restriction', 'payment', 'area'];
   const dynamicTypes = Array.from(new Set(masterFilters.map((f: any) => f.type)));
@@ -187,7 +214,7 @@ export default function CategoryHub({
                 <span className="font-black text-xl text-gray-900">{cat.name}</span>
                 <div className="flex gap-3">
                   <button onClick={() => openManageCategory(cat.name)} className="bg-purple-600 flex items-center gap-1.5 text-white px-5 py-2 rounded-xl font-bold text-xs shadow-md"><Icons.Users className="w-4 h-4" /> Participants</button>
-                  <button onClick={() => deleteCategory(cat.id, cat.name)} className="text-red-400 font-bold text-xs px-2 hover:bg-red-50 rounded-md">Delete</button>
+                  <button onClick={() => deleteCategory(cat.id, cat.name)} className="text-red-400 font-bold text-xs px-3 hover:bg-red-50 rounded-lg transition">Delete</button>
                 </div>
               </div>
               
@@ -278,9 +305,21 @@ export default function CategoryHub({
             const filtersForType = masterFilters.filter((f: any) => f.type === type);
             if (filtersForType.length === 0 && !baseTypes.includes(type)) return null;
 
+            const isBaseType = baseTypes.includes(type);
+
             return (
-              <div key={type} className="space-y-4">
-                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2">{type}s</h3>
+              <div key={type} className="space-y-4 group">
+                <div className="flex justify-between items-center border-b-2 border-gray-100 pb-2">
+                  <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">{type}s</h3>
+                  {!isBaseType && (
+                    <button 
+                      onClick={() => deleteMasterFilterCategory(type)}
+                      className="text-[10px] font-bold text-red-400 bg-red-50 px-2 py-1 rounded-md hover:bg-red-100 hover:text-red-600 transition opacity-0 group-hover:opacity-100"
+                    >
+                      Delete Category
+                    </button>
+                  )}
+                </div>
                 <div className="flex flex-col gap-3">
                   {filtersForType.map((filter: any) => (
                     <FilterRow 
