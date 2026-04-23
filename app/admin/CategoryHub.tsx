@@ -66,8 +66,11 @@ export default function CategoryHub({
   const [newCategoryStartDate, setNewCategoryStartDate] = useState('');
   const [newCategoryEndDate, setNewCategoryEndDate] = useState('');
   const [newCategoryIsConstant, setNewCategoryIsConstant] = useState(false);
+  
   const [newFilterName, setNewFilterName] = useState('');
-  const [newFilterType, setNewFilterType] = useState<'cuisine' | 'restriction' | 'payment' | 'area'>('cuisine');
+  const [newFilterType, setNewFilterType] = useState('cuisine');
+  const [isCustomType, setIsCustomType] = useState(false);
+  const [customType, setCustomType] = useState('');
 
   const addCategory = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -115,14 +118,26 @@ export default function CategoryHub({
   const addMasterFilter = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newFilterName.trim()) return;
+
+    const finalType = isCustomType ? customType.trim().toLowerCase().replace(/\s+/g, '_') : newFilterType;
+    if (!finalType) {
+      return alert("Category name is required.");
+    }
+
     const { error } = await supabase.from('filter_options').insert([{ 
-      name: newFilterName.trim(), type: newFilterType, translations: {} 
+      name: newFilterName.trim(), type: finalType, translations: {} 
     }]);
+    
     if (error) {
       console.error("Error adding filter:", error);
       alert(`Failed to add filter: ${error.message}`);
     } else { 
       setNewFilterName(''); 
+      if (isCustomType) {
+        setNewFilterType(finalType);
+        setIsCustomType(false);
+        setCustomType('');
+      }
       fetchAllData(); 
     }
   };
@@ -138,6 +153,11 @@ export default function CategoryHub({
       }
     }
   };
+
+  // Combine standard types with any newly created custom types
+  const baseTypes = ['cuisine', 'restriction', 'payment', 'area'];
+  const dynamicTypes = Array.from(new Set(masterFilters.map((f: any) => f.type)));
+  const allAvailableTypes = Array.from(new Set([...baseTypes, ...dynamicTypes])) as string[];
 
   return (
     <div className="max-w-6xl space-y-12 pb-20">
@@ -229,34 +249,52 @@ export default function CategoryHub({
           ))}
         </div>
       </section>
+
       <section className="bg-white p-8 rounded-[40px] shadow-sm border border-gray-200">
         <h2 className="text-3xl font-black mb-2">Master Filter Tags</h2>
         <form onSubmit={addMasterFilter} className="flex flex-wrap gap-4 mb-10 p-6 bg-gray-50 rounded-3xl border border-gray-100">
-          <select value={newFilterType} onChange={(e: any) => setNewFilterType(e.target.value)} className="p-3 border rounded-xl font-bold bg-white">
-            <option value="cuisine">Cuisine</option>
-            <option value="restriction">Dietary</option>
-            <option value="payment">Payment</option>
-            <option value="area">Area</option>
-          </select>
-          <input type="text" value={newFilterName} onChange={(e) => setNewFilterName(e.target.value)} placeholder="Tag Name" className="flex-1 p-3 border rounded-xl font-bold" />
+          
+          <div className="flex bg-gray-200 p-1 rounded-xl">
+            <button type="button" onClick={() => setIsCustomType(false)} className={`px-4 py-2 text-sm font-bold rounded-lg transition ${!isCustomType ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>Existing</button>
+            <button type="button" onClick={() => setIsCustomType(true)} className={`px-4 py-2 text-sm font-bold rounded-lg transition ${isCustomType ? 'bg-white shadow-sm text-gray-900' : 'text-gray-500 hover:text-gray-900'}`}>New Category</button>
+          </div>
+
+          {!isCustomType ? (
+            <select value={newFilterType} onChange={(e: any) => setNewFilterType(e.target.value)} className="p-3 border border-gray-200 rounded-xl font-bold bg-white outline-none">
+              {allAvailableTypes.map(t => (
+                <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+              ))}
+            </select>
+          ) : (
+             <input type="text" value={customType} onChange={(e) => setCustomType(e.target.value)} placeholder="Category (e.g., Music)" className="p-3 border border-gray-200 rounded-xl font-bold bg-white" />
+          )}
+
+          <input type="text" value={newFilterName} onChange={(e) => setNewFilterName(e.target.value)} placeholder="Tag Name" className="flex-1 p-3 border border-gray-200 rounded-xl font-bold" />
           <button type="submit" className="bg-orange-600 text-white font-black px-8 py-3 rounded-xl hover:bg-orange-700 transition">Add Tag</button>
         </form>
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
-          {['cuisine', 'restriction', 'payment', 'area'].map((type) => (
-            <div key={type} className="space-y-4">
-              <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2">{type}s</h3>
-              <div className="flex flex-col gap-3">
-                {masterFilters.filter((f: any) => f.type === type).map((filter: any) => (
-                  <FilterRow 
-                    key={filter.id} 
-                    filter={filter} 
-                    updateBaseTagName={updateBaseTagName} 
-                    deleteMasterFilter={deleteMasterFilter} 
-                  />
-                ))}
+          {allAvailableTypes.map((type) => {
+            const filtersForType = masterFilters.filter((f: any) => f.type === type);
+            if (filtersForType.length === 0 && !baseTypes.includes(type)) return null;
+
+            return (
+              <div key={type} className="space-y-4">
+                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest border-b-2 border-gray-100 pb-2">{type}s</h3>
+                <div className="flex flex-col gap-3">
+                  {filtersForType.map((filter: any) => (
+                    <FilterRow 
+                      key={filter.id} 
+                      filter={filter} 
+                      updateBaseTagName={updateBaseTagName} 
+                      deleteMasterFilter={deleteMasterFilter} 
+                    />
+                  ))}
+                  {filtersForType.length === 0 && <span className="text-xs font-bold text-gray-300">No tags added yet.</span>}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       </section>
     </div>

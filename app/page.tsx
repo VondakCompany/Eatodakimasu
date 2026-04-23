@@ -14,6 +14,17 @@ const CAMPUSES = {
   tokorozawa: { name: '所沢', lat: 35.7876, lng: 139.4002 },
 };
 
+// Maps DB Types to specific columns. Defaults to the type name for dynamic custom categories.
+const getDbField = (type: string) => {
+  switch (type) {
+    case 'cuisine': return 'cuisine';
+    case 'restriction': return 'food_restrictions';
+    case 'payment': return 'payment_methods';
+    case 'area': return 'restaurant_area';
+    default: return type;
+  }
+};
+
 export default function Home() {
   const { currentLang, t } = useLanguage();
 
@@ -48,9 +59,9 @@ export default function Home() {
 
   const [query, setQuery] = useState('');
   const [price, setPrice] = useState(3000);
-  const [cuisines, setCuisines] = useState<string[]>([]);
-  const [restrictions, setRestrictions] = useState<string[]>([]);
-  const [payments, setPayments] = useState<string[]>([]);
+  
+  // Replaced multiple state arrays with a single dynamic dictionary
+  const [selectedFilters, setSelectedFilters] = useState<Record<string, string[]>>({});
   const [otherOptions, setOtherOptions] = useState<string[]>([]);
   
   const [openNowOnly, setOpenNowOnly] = useState(false); 
@@ -69,7 +80,7 @@ export default function Home() {
   const [selectedAdId, setSelectedAdId] = useState<string | null>(null);
   
   const [loading, setLoading] = useState(true);
-  const [isSlowData, setIsSlowData] = useState(false); // Slow Network Detection
+  const [isSlowData, setIsSlowData] = useState(false);
   const [isMobileFilterOpen, setIsMobileFilterOpen] = useState(false);
 
   const [page, setPage] = useState(0);
@@ -112,8 +123,21 @@ export default function Home() {
     else setter([...array, value]);
   };
 
+  const toggleDynamicFilter = (type: string, value: string) => {
+    setSelectedFilters(prev => {
+      const current = prev[type] || [];
+      if (current.includes(value)) {
+        return { ...prev, [type]: current.filter(v => v !== value) };
+      } else {
+        return { ...prev, [type]: [...current, value] };
+      }
+    });
+  };
+
   const clearFilters = () => {
-    setQuery(''); setPrice(3000); setCuisines([]); setRestrictions([]); setPayments([]); setOtherOptions([]);
+    setQuery(''); setPrice(3000); 
+    setSelectedFilters({}); 
+    setOtherOptions([]);
     setOpenNowOnly(false); setTakeoutOnly(false);
     setCampusSort(''); setSeatCapacity(''); setMaxWalkTime(''); setStayDuration('');
     setUserLocation(null); setGeoError('');
@@ -131,7 +155,6 @@ export default function Home() {
     );
   };
 
-  // Resilient, non-blocking metadata fetch
   useEffect(() => {
     const fetchFiltersEventsAndAds = () => {
       Promise.allSettled([
@@ -163,9 +186,12 @@ export default function Home() {
     fetchFiltersEventsAndAds();
   }, [isEditor]);
 
+  // Convert filter state to a stable dependency string to avoid loop
+  const selectedFiltersStr = JSON.stringify(selectedFilters);
+
   useEffect(() => {
     setPage(0); setRestaurants([]); setHasMore(true);
-  }, [query, price, cuisines, restrictions, payments, otherOptions, userLocation, openNowOnly, takeoutOnly, campusSort, seatCapacity, maxWalkTime, stayDuration]);
+  }, [query, price, selectedFiltersStr, otherOptions, userLocation, openNowOnly, takeoutOnly, campusSort, seatCapacity, maxWalkTime, stayDuration]);
 
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371e3; 
@@ -178,7 +204,6 @@ export default function Home() {
     return R * c * 1.3; 
   };
 
-  // Main debounced query with slow network detection
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (!hasMore && page !== 0) return;
@@ -193,10 +218,16 @@ export default function Home() {
         const tokens = query.replace(/　/g, ' ').split(/\s+/).filter(Boolean);
         tokens.forEach(token => { dbQuery = dbQuery.or(`title.ilike.%${token}%,description.ilike.%${token}%,address.ilike.%${token}%,takeout_menu.ilike.%${token}%`); });
       }
+      
       if (price < 3000) dbQuery = dbQuery.lte('restaurant_price', price);
-      if (cuisines.length > 0) dbQuery = dbQuery.overlaps('cuisine', cuisines);
-      if (restrictions.length > 0) dbQuery = dbQuery.overlaps('food_restrictions', restrictions);
-      if (payments.length > 0) dbQuery = dbQuery.overlaps('payment_methods', payments);
+      
+      // Inject dynamically selected filters into the query based on type
+      Object.entries(selectedFilters).forEach(([type, values]) => {
+        if (values.length > 0) {
+          dbQuery = dbQuery.overlaps(getDbField(type), values);
+        }
+      });
+
       if (otherOptions.length > 0) dbQuery = dbQuery.overlaps('other_options', otherOptions);
       if (takeoutOnly) dbQuery = dbQuery.eq('takeout_available', true);
       if (stayDuration) dbQuery = dbQuery.eq('avg_stay_time', stayDuration);
@@ -276,7 +307,7 @@ export default function Home() {
     }, 250);
     
     return () => clearTimeout(delayDebounceFn);
-  }, [query, price, cuisines, restrictions, payments, otherOptions, page, userLocation, openNowOnly, takeoutOnly, campusSort, seatCapacity, maxWalkTime, stayDuration]);
+  }, [query, price, selectedFiltersStr, otherOptions, page, userLocation, openNowOnly, takeoutOnly, campusSort, seatCapacity, maxWalkTime, stayDuration]);
 
   const lastElementRef = useCallback((node: HTMLDivElement | null) => {
     if (loading || userLocation || campusSort || seatCapacity || openNowOnly || maxWalkTime || stayDuration) return; 
@@ -285,11 +316,8 @@ export default function Home() {
     if (node) observer.current.observe(node);
   }, [loading, hasMore, userLocation, campusSort, seatCapacity, openNowOnly, maxWalkTime, stayDuration]);
 
-  const hasActiveFilters = query || price !== 3000 || cuisines.length > 0 || restrictions.length > 0 || payments.length > 0 || otherOptions.length > 0 || userLocation !== null || openNowOnly || takeoutOnly || campusSort !== '' || seatCapacity !== '' || maxWalkTime !== '' || stayDuration !== '';
-
-  const dbCuisines = masterFilters.filter(f => f.type === 'cuisine');
-  const dbRestrictions = masterFilters.filter(f => f.type === 'restriction');
-  const dbPayments = masterFilters.filter(f => f.type === 'payment');
+  const hasActiveDynamicFilters = Object.values(selectedFilters).some(arr => arr.length > 0);
+  const hasActiveFilters = query || price !== 3000 || hasActiveDynamicFilters || otherOptions.length > 0 || userLocation !== null || openNowOnly || takeoutOnly || campusSort !== '' || seatCapacity !== '' || maxWalkTime !== '' || stayDuration !== '';
 
   const getTranslatedName = (item: any) => {
     if (currentLang === 'ja') return item.name;
@@ -516,22 +544,36 @@ export default function Home() {
                   </label>
                 </div>
                 
-                {[
-                  { label: t('filter_cuisine', 'ジャンル'), state: cuisines, setter: setCuisines, options: dbCuisines },
-                  { label: t('filter_dietary', '食事制限'), state: restrictions, setter: setRestrictions, options: dbRestrictions },
-                  { label: t('filter_payment', '決済方法'), state: payments, setter: setPayments, options: dbPayments }
-                ].map((group, idx) => (
-                  <div key={idx} className="mb-8">
-                    <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{group.label}</label>
-                    <div className="flex flex-wrap gap-2">
-                      {group.options.map((opt) => (
-                        <button key={opt.id} onClick={() => toggleArrayItem(group.setter, group.state, opt.name)} className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${group.state.includes(opt.name) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}>
-                          {getTranslatedName(opt)}
-                        </button>
-                      ))}
+                {/* Dynamically Generate All Category Groups */}
+                {Array.from(new Set(masterFilters.map(f => f.type))).map((type) => {
+                  const options = masterFilters.filter(f => f.type === type);
+                  if (options.length === 0) return null;
+
+                  let label = type.charAt(0).toUpperCase() + type.slice(1);
+                  if (type === 'cuisine') label = t('filter_cuisine', 'ジャンル');
+                  if (type === 'restriction') label = t('filter_dietary', '食事制限');
+                  if (type === 'payment') label = t('filter_payment', '決済方法');
+                  if (type === 'area') label = t('filter_area', 'エリア');
+
+                  const currentState = selectedFilters[type] || [];
+
+                  return (
+                    <div key={type} className="mb-8">
+                      <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{label}</label>
+                      <div className="flex flex-wrap gap-2">
+                        {options.map((opt) => (
+                          <button 
+                            key={opt.id} 
+                            onClick={() => toggleDynamicFilter(type, opt.name)} 
+                            className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${currentState.includes(opt.name) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                          >
+                            {getTranslatedName(opt)}
+                          </button>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
                 
                 {activeEvents.length > 0 && (
                   <div className="mb-12 lg:mb-2">

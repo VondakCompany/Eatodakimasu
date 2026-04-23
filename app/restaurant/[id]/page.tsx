@@ -10,13 +10,13 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const [restaurant, setRestaurant] = useState<any>(null);
   const [allCategories, setAllCategories] = useState<any[]>([]); 
   const [ads, setAds] = useState<any[]>([]);
+  const [customFilterTypes, setCustomFilterTypes] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
-  const [isSlowData, setIsSlowData] = useState(false); // Slow Network Detection
+  const [isSlowData, setIsSlowData] = useState(false);
 
   const [lightboxOpen, setLightboxOpen] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState(0);
 
-  // Resilient, non-blocking fetch
   useEffect(() => {
     const fetchData = async () => {
       setLoading(true);
@@ -25,7 +25,6 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
       const slowTimer = setTimeout(() => setIsSlowData(true), 4000);
       const resolvedParams = await params; 
       
-      // Using Promise.allSettled guarantees the restaurant renders even if ads timeout
       await Promise.allSettled([
         supabase.from('restaurants').select('*').eq('id', resolvedParams.id).single()
           .then(res => { if (res.data) setRestaurant(res.data); }),
@@ -34,7 +33,18 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
           .then(res => { if (res.data) setAllCategories(res.data); }),
           
         supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/restaurant/*', `/restaurant/${resolvedParams.id}`])
-          .then(res => { if (res.data) setAds(res.data); })
+          .then(res => { if (res.data) setAds(res.data); }),
+          
+        // Fetch dynamic filter types to display custom tags automatically
+        supabase.from('filter_options').select('type')
+          .then(res => {
+            if (res.data) {
+              const types = Array.from(new Set(res.data.map(d => d.type)));
+              // Filter out the base types since we manually display food_restrictions, payments, etc. elsewhere or individually
+              const custom = types.filter(t => !['cuisine', 'restriction', 'payment', 'area'].includes(t));
+              setCustomFilterTypes(custom);
+            }
+          })
       ]);
 
       setLoading(false);
@@ -111,32 +121,17 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
 
   return (
     <>
-      {/* DESKTOP AD LAYER */}
       <div className="hidden lg:block absolute top-0 left-1/2 transform -translate-x-1/2 w-[1600px] h-0 z-40 pointer-events-none">
         {ads.map(ad => (
-          <a 
-            key={ad.id} 
-            href={ad.action_url || '#'} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="absolute pointer-events-auto rounded-[1.5rem] overflow-hidden transition hover:opacity-90 bg-gray-50"
-            style={{ left: ad.x, top: ad.y, width: ad.w, height: ad.h }}
-          >
+          <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="absolute pointer-events-auto rounded-[1.5rem] overflow-hidden transition hover:opacity-90 bg-gray-50" style={{ left: ad.x, top: ad.y, width: ad.w, height: ad.h }}>
             <img src={ad.image_url} className="w-full h-full object-cover" alt="Advertisement" />
           </a>
         ))}
       </div>
 
-      {/* MOBILE STICKY AD LAYER */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
         {ads.filter(a => a.mobile_fallback === 'sticky').map(ad => (
-          <a 
-            key={ad.id} 
-            href={ad.action_url || '#'} 
-            target="_blank" 
-            rel="noopener noreferrer"
-            className="w-full h-20 bg-white flex items-center px-5 gap-4 border-t border-gray-200 pointer-events-auto hover:bg-gray-50 transition"
-          >
+          <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="w-full h-20 bg-white flex items-center px-5 gap-4 border-t border-gray-200 pointer-events-auto hover:bg-gray-50 transition">
             <img src={ad.image_url} className="w-12 h-12 rounded-xl object-cover" alt="Sponsored" />
             <div className="flex flex-col flex-1 truncate">
               <span className="font-black text-sm text-gray-900">Special Promo</span>
@@ -147,7 +142,6 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
         ))}
       </div>
 
-      {/* FULLSCREEN LIGHTBOX OVERLAY */}
       {lightboxOpen && restaurant.image_urls && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-sm" onClick={closeLightbox}>
           <button className="absolute top-6 right-8 text-white/70 hover:text-white text-4xl font-light transition-colors z-50" onClick={closeLightbox}>✕</button>
@@ -164,9 +158,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
         </div>
       )}
 
-      {/* MAIN CONTENT */}
       <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden mt-4 md:mt-8 mb-24 relative z-10">
-        
         <div className="h-64 md:h-96 w-full relative bg-gray-900 group">
           <img src={restaurant.image_url || "/images/default.jpg"} alt={displayTitle} className="object-cover w-full h-full opacity-60 absolute inset-0 z-0" />
           <div className="absolute top-6 left-6 right-6 flex justify-between z-10">
@@ -250,9 +242,25 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               <ul className="space-y-4 text-gray-800 font-medium">
                 {displayHours && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">🕒</span> <span className="whitespace-pre-wrap leading-relaxed">{displayHours}</span></li>}
                 {restaurant.restaurant_area && restaurant.restaurant_area.length > 0 && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">🗺️</span> {restaurant.restaurant_area.map((a: string) => t(`tag_${a}`, a)).join('、 ')}</li>}
-                {restaurant.total_seats && <li className="flex items-start">{t('label_seats', '🪑 座席数: {{seats}}', { seats: restaurant.total_seats })}</li>}
-                {restaurant.avg_stay_time && <li className="flex items-start">{t('label_stay_time', '⏳ 滞在時間: {{time}}', { time: restaurant.avg_stay_time })}</li>}
+                {restaurant.total_seats && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">🪑</span> {t('label_seats', '座席数: {{seats}}', { seats: restaurant.total_seats })}</li>}
+                {restaurant.avg_stay_time && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">⏳</span> {t('label_stay_time', '滞在時間: {{time}}', { time: restaurant.avg_stay_time })}</li>}
                 {restaurant.payment_methods && restaurant.payment_methods.length > 0 && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">💳</span> {restaurant.payment_methods.map((p: string) => t(`tag_${p}`, p)).join('、 ')}</li>}
+                
+                {/* Dynamically render any custom categories created by admins */}
+                {customFilterTypes.map(type => {
+                  const values = restaurant[type] || restaurant.custom_fields?.[type];
+                  if (!values || !Array.isArray(values) || values.length === 0) return null;
+                  
+                  return (
+                    <li key={type} className="flex items-start">
+                      <span className="w-6 text-xl mr-3 text-center">✨</span> 
+                      <span>
+                        <span className="font-bold text-gray-500 mr-2">{type.charAt(0).toUpperCase() + type.slice(1)}:</span> 
+                        {values.map((v: string) => t(`tag_${v}`, v)).join('、 ')}
+                      </span>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
             <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">

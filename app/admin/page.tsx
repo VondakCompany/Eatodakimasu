@@ -44,12 +44,10 @@ export default function AdminDashboard() {
   const [savingParticipants, setSavingParticipants] = useState(false);
   const [batchStatus, setBatchStatus] = useState<{ total: number, current: number, isRunning: boolean } | null>(null);
 
-  // THIS LOCK PREVENTS THE IFRAME BROADCAST LOOP
   const hasInitializedAuth = useRef(false);
 
   useEffect(() => { editingDataRef.current = editingData; }, [editingData]);
 
-  // Unified, flicker-free, and broadcast-proof auth initialization
   useEffect(() => {
     let mounted = true;
     let authTimer: NodeJS.Timeout;
@@ -70,8 +68,6 @@ export default function AdminDashboard() {
             await supabase.auth.signOut();
             if (mounted) setIsAuthenticated(false);
           } else {
-            
-            // ROOT ADMIN GOD-MODE CHECK
             const { data: rootAdmin } = await supabase.from('user_profiles')
               .select('id')
               .eq('role', 'admin')
@@ -82,14 +78,14 @@ export default function AdminDashboard() {
             const isRootAdmin = rootAdmin?.id === session.user.id;
 
             if (mounted) {
-              setUserProfile({ ...data, isRootAdmin }); // Inject true root status into profile
+              setUserProfile({ ...data, isRootAdmin }); 
               
               const adminFallback = data.role === 'admin' && (!data.allowed_tabs || data.allowed_tabs.length === 0);
               const hasDir = isRootAdmin || adminFallback || data.allowed_tabs?.includes('directory');
               
               if (!hasDir && data.allowed_tabs?.length > 0) setActiveTab(data.allowed_tabs[0] as any);
               setIsAuthenticated(true);
-              hasInitializedAuth.current = true; // Lock engaged
+              hasInitializedAuth.current = true; 
             }
           }
         } else {
@@ -401,7 +397,6 @@ export default function AdminDashboard() {
   const hasAccess = (tabId: string) => {
     if (!userProfile) return false;
     
-    // GOD MODE: The Root Admin always bypasses array checks to prevent lockouts
     if (userProfile.isRootAdmin) return true;
     
     if (userProfile.role === 'admin' && (!userProfile.allowed_tabs || userProfile.allowed_tabs.length === 0)) return true;
@@ -454,6 +449,9 @@ export default function AdminDashboard() {
   }
 
   const allRestaurantsList = [...liveRestaurants, ...pendingSubmissions];
+
+  // Helper to extract the unique dynamic types for master filters
+  const dynamicFilterTypes = Array.from(new Set(masterFilters.map(f => f.type)));
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 relative min-h-screen pb-20 animate-in fade-in duration-500">
@@ -548,7 +546,6 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* Global Modals Overlays */}
       {managingCategory && (
         <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
           <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col relative overflow-hidden animate-in zoom-in-95 duration-200">
@@ -641,18 +638,32 @@ export default function AdminDashboard() {
                 </div>
               </section>
 
+              {/* --- 2. MASTER FILTER TAGS (FULLY DYNAMIC) --- */}
               <section className="space-y-8">
                 <h3 className="text-xl font-black text-gray-900 border-b pb-2">Master Filter Tags</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
-                  {['cuisine', 'restriction', 'payment', 'area'].map(type => {
-                    const dbField = getDbField(type);
+                  {dynamicFilterTypes.map(type => {
+                    const dbField = getDbField(type as string);
+                    
+                    // Helper to make headers look nice (e.g., "cuisine" -> "CUISINES")
+                    const formatHeader = (text: string) => {
+                      if (!text) return '';
+                      const formatted = text.replace(/_/g, ' ').toUpperCase();
+                      return formatted.endsWith('S') ? formatted : `${formatted}S`;
+                    };
+
                     return (
-                      <div key={type}>
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">{type}s</label>
+                      <div key={type as string}>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">{formatHeader(type as string)}</label>
                         <div className="flex flex-col gap-2">
                           {masterFilters.filter(f => f.type === type).map(opt => (
                             <label key={opt.id} className="flex items-center cursor-pointer p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition">
-                              <input type="checkbox" checked={(editingData[dbField] || []).includes(opt.name)} onChange={() => toggleEditArray(dbField, opt.name)} className="mr-3 h-5 w-5" />
+                              <input 
+                                type="checkbox" 
+                                checked={(editingData[dbField] || []).includes(opt.name)} 
+                                onChange={() => toggleEditArray(dbField, opt.name)} 
+                                className="mr-3 h-5 w-5 accent-orange-600 cursor-pointer" 
+                              />
                               <span className="text-sm font-bold text-gray-700">{opt.name}</span>
                             </label>
                           ))}
@@ -662,6 +673,7 @@ export default function AdminDashboard() {
                   })}
                 </div>
               </section>
+
               <section className="space-y-8">
                  <h3 className="text-xl font-black text-gray-900 border-b pb-2">Basic Info & Content</h3>
                  <div className="bg-gray-50 p-6 rounded-3xl border border-gray-200">
@@ -691,14 +703,35 @@ export default function AdminDashboard() {
                       <input type="text" value={editingData.website_url || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, website_url: e.target.value}))} className="w-full p-4 border border-blue-100 bg-blue-50/30 rounded-2xl font-bold text-blue-600 shadow-sm" placeholder="Website URL (https://...)" />
                       <input type="number" value={editingData.restaurant_price || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, restaurant_price: parseInt(e.target.value)}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Price" />
                       <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, address: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Address" />
+                      
                       <div className="grid grid-cols-2 gap-4">
                         <input type="text" value={editingData.total_seats || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, total_seats: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="総席数 (e.g. 30席)" />
                         <input type="text" value={editingData.avg_stay_time || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, avg_stay_time: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="平均滞接時間 (e.g. 1時間)" />
                       </div>
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <input type="text" value={editingData.campus_name || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, campus_name: e.target.value}))} className="w-full p-4 border border-indigo-100 bg-indigo-50/30 rounded-2xl font-bold text-indigo-900 shadow-sm text-sm" placeholder="Campus Name (e.g. waseda)" />
+                        <input type="number" value={editingData.campus_dist_meters || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, campus_dist_meters: parseInt(e.target.value)}))} className="w-full p-4 border border-indigo-100 bg-indigo-50/30 rounded-2xl font-bold text-indigo-900 shadow-sm text-sm" placeholder="Campus Distance (Meters)" />
+                      </div>
+
                       <div className="flex gap-2">
                         <input type="text" disabled value={`Lat: ${editingData.lat || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
                         <input type="text" disabled value={`Lng: ${editingData.lng || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
                       </div>
+
+                      <div className="mt-2">
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Publish Status</label>
+                        <select 
+                          value={editingData.status || 'pending'} 
+                          onChange={(e) => setEditingData((prev: any) => ({...prev, status: e.target.value}))}
+                          className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm bg-white outline-none focus:ring-2 focus:ring-orange-500"
+                        >
+                          <option value="pending">Pending</option>
+                          <option value="approved">Approved (Live)</option>
+                          <option value="rejected">Rejected</option>
+                        </select>
+                      </div>
+
                     </div>
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -718,7 +751,135 @@ export default function AdminDashboard() {
                  <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, description: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm" placeholder="Description..." />
                  <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, full_menu: e.target.value}))} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium shadow-inner" placeholder="Menu..." />
               </section>
-              <button onClick={() => saveEdits(editingData)} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-black py-6 rounded-[32px] shadow-2xl hover:shadow-orange-500/20 transition transform hover:-translate-y-1 text-xl">
+
+              {/* --- AUTO-DETECTED DYNAMIC FIELDS --- */}
+              {(() => {
+                const dynamicDbFields = Array.from(new Set(masterFilters.map(f => getDbField(f.type))));
+                
+                const knownKeys = [
+                  'id', 'created_at', 'title', 'website_url', 'restaurant_price', 'address',
+                  'total_seats', 'avg_stay_time', 'lat', 'lng', 'status', 'operating_hours',
+                  'takeout_menu', 'discount_info', 'description', 'full_menu', 'image_url',
+                  'image_urls', 'contact_name', 'contact_phone', 'contact_email', 'photo_method',
+                  'admin_notes', 'other_options', 'category_collabs', 'dist_meters', 
+                  'translations', 'campus_name', 'campus_dist_meters',
+                  ...dynamicDbFields // Include all dynamically generated fields so they don't double render here
+                ];
+
+                const dynamicKeys = Object.keys(editingData).filter(key => !knownKeys.includes(key));
+
+                if (dynamicKeys.length === 0) return null;
+
+                return (
+                  <section className="space-y-6 pt-8 border-t-2 border-dashed border-gray-200">
+                    <div>
+                      <h3 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                        <Icons.Sync className="w-6 h-6 text-blue-500" /> Auto-Detected Database Fields
+                      </h3>
+                      <p className="text-xs font-bold text-gray-400 mt-1">These columns were found in Supabase but don't have custom UI yet.</p>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-blue-50/30 p-6 rounded-[32px] border border-blue-100">
+                      {dynamicKeys.map(key => {
+                        const val = editingData[key];
+                        const valueType = val === null ? 'null' : typeof val;
+
+                        if (val !== null && valueType === 'object') {
+                          return (
+                            <div key={key} className="col-span-1 md:col-span-2 opacity-80">
+                              <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-2">
+                                {key.replace(/_/g, ' ')} (JSON/Array)
+                              </label>
+                              <textarea 
+                                readOnly
+                                rows={3}
+                                value={JSON.stringify(val, null, 2)}
+                                className="w-full p-4 border border-blue-100 bg-white/50 rounded-2xl text-xs font-mono text-gray-500 outline-none resize-y"
+                                placeholder="Empty JSON"
+                              />
+                            </div>
+                          );
+                        }
+
+                        if (valueType === 'boolean') {
+                          return (
+                            <div key={key} className="flex items-center justify-between p-4 bg-white border border-blue-200 rounded-2xl shadow-sm transition hover:border-blue-400">
+                              <label className="text-sm font-black text-blue-600 uppercase tracking-widest cursor-pointer flex-1" htmlFor={`dynamic-${key}`}>
+                                {key.replace(/_/g, ' ')}
+                              </label>
+                              <input 
+                                id={`dynamic-${key}`}
+                                type="checkbox"
+                                checked={val} 
+                                onChange={(e) => setEditingData((prev: any) => ({
+                                  ...prev, 
+                                  [key]: e.target.checked
+                                }))} 
+                                className="w-6 h-6 accent-blue-600 cursor-pointer" 
+                              />
+                            </div>
+                          );
+                        }
+
+                        if (valueType === 'number') {
+                          return (
+                            <div key={key}>
+                              <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-2">
+                                {key.replace(/_/g, ' ')} (Number)
+                              </label>
+                              <input 
+                                type="number"
+                                value={val === null ? '' : val} 
+                                onChange={(e) => setEditingData((prev: any) => ({
+                                  ...prev, 
+                                  [key]: e.target.value === '' ? null : Number(e.target.value)
+                                }))} 
+                                className="w-full p-4 border border-blue-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white transition" 
+                                placeholder="0"
+                              />
+                            </div>
+                          );
+                        }
+
+                        const isLongText = typeof val === 'string' && val.length > 80;
+                        
+                        return (
+                          <div key={key} className={isLongText ? "col-span-1 md:col-span-2" : ""}>
+                            <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-2">
+                              {key.replace(/_/g, ' ')} {isLongText ? '(Long Text)' : ''}
+                            </label>
+                            {isLongText ? (
+                              <textarea 
+                                rows={3}
+                                value={val === null ? '' : val} 
+                                onChange={(e) => setEditingData((prev: any) => ({
+                                  ...prev, 
+                                  [key]: e.target.value
+                                }))} 
+                                className="w-full p-4 border border-blue-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white transition resize-y" 
+                                placeholder={`Enter ${key}...`}
+                              />
+                            ) : (
+                              <input 
+                                type="text"
+                                value={val === null ? '' : val} 
+                                onChange={(e) => setEditingData((prev: any) => ({
+                                  ...prev, 
+                                  [key]: e.target.value
+                                }))} 
+                                className="w-full p-4 border border-blue-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white transition" 
+                                placeholder={`Enter ${key}...`}
+                              />
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </section>
+                );
+              })()}
+
+              <button onClick={() => saveEdits(editingData)} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-black py-6 rounded-[32px] shadow-2xl hover:shadow-orange-500/20 transition transform hover:-translate-y-1 text-xl mt-8">
                 SAVE ALL CHANGES
               </button>
             </div>

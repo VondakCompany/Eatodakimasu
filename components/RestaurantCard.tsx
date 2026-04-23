@@ -49,6 +49,27 @@ export default function RestaurantCard({
   const walkFromUser = finalDistance !== undefined && !isNaN(finalDistance) ? Math.max(1, Math.ceil(finalDistance / 80)) : null;
   const walkFromCampus = restaurant.campus_dist_meters ? Math.max(1, Math.ceil(restaurant.campus_dist_meters / 80)) : null;
 
+  // Dynamically extract any custom category tags added via the Category Hub
+  const KNOWN_ARRAYS = ['cuisine', 'restaurant_area', 'food_restrictions', 'payment_methods', 'other_options', 'image_urls'];
+  const dynamicTags: string[] = [];
+  
+  // 1. Extract from dynamically added root-level array columns
+  Object.entries(restaurant).forEach(([key, value]) => {
+    if (Array.isArray(value) && !KNOWN_ARRAYS.includes(key)) {
+      dynamicTags.push(...value);
+    }
+  });
+  
+  // 2. Extract from JSONB custom_fields column
+  if (restaurant.custom_fields && typeof restaurant.custom_fields === 'object') {
+    Object.values(restaurant.custom_fields).forEach(val => {
+      if (Array.isArray(val)) dynamicTags.push(...(val as string[]));
+    });
+  }
+
+  // Deduplicate tags
+  const uniqueDynamicTags = Array.from(new Set(dynamicTags));
+
   return (
     <Link href={`/restaurant/${restaurant.id}`} className="block group h-full">
       <div className="bg-white rounded-[32px] overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300 border border-gray-100 h-full flex flex-col relative transform group-hover:-translate-y-1">
@@ -111,9 +132,17 @@ export default function RestaurantCard({
           </div>
 
           <div className="flex flex-wrap gap-1.5 mb-4">
+            {/* Standard Cuisine Tags */}
             {restaurant.cuisine && restaurant.cuisine.map((c: string) => (
-              <span key={c} className="text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-1 rounded-lg">
+              <span key={`cuisine-${c}`} className="text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-1 rounded-lg">
                 {t(`tag_${c}`, c)}
+              </span>
+            ))}
+            
+            {/* Dynamic Custom Category Tags */}
+            {uniqueDynamicTags.map((tag) => (
+              <span key={`custom-${tag}`} className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg">
+                {t(`tag_${tag}`, tag)}
               </span>
             ))}
           </div>
