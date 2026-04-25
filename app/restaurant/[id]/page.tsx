@@ -5,12 +5,19 @@ import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { useLanguage } from '@/contexts/LanguageContext';
 
+const PUBLIC_COLUMNS = 'id, title, description, restaurant_price, cuisine, food_restrictions, takeout_available, takeout_menu, total_seats, avg_stay_time, image_url, address, payment_methods, website_url, discount_info, title_en, description_en, takeout_menu_en, full_menu, full_menu_en, other_options, translations, category_collabs, lat, lng, operating_hours, hours_source, image_urls, discount_type, food_restrictions_description, takeout_how_to, image_formInput_url, custom_fields, status';
+
 export default function RestaurantPage({ params }: { params: Promise<{ id: string }> }) {
   const { currentLang, t } = useLanguage();
   const [restaurant, setRestaurant] = useState<any>(null);
   const [allCategories, setAllCategories] = useState<any[]>([]); 
   const [ads, setAds] = useState<any[]>([]);
+  
+  const [allFilterOptions, setAllFilterOptions] = useState<any[]>([]);
   const [customFilterTypes, setCustomFilterTypes] = useState<string[]>([]);
+  
+  const [formSchemaBlocks, setFormSchemaBlocks] = useState<any[]>([]);
+  
   const [loading, setLoading] = useState(true);
   const [isSlowData, setIsSlowData] = useState(false);
 
@@ -26,7 +33,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
       const resolvedParams = await params; 
       
       await Promise.allSettled([
-        supabase.from('restaurants').select('*').eq('id', resolvedParams.id).single()
+        supabase.from('restaurants').select(PUBLIC_COLUMNS).eq('id', resolvedParams.id).single()
           .then(res => { if (res.data) setRestaurant(res.data); }),
           
         supabase.from('custom_categories').select('*')
@@ -35,14 +42,28 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
         supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/restaurant/*', `/restaurant/${resolvedParams.id}`])
           .then(res => { if (res.data) setAds(res.data); }),
           
-        // Fetch dynamic filter types to display custom tags automatically
-        supabase.from('filter_options').select('type')
+        supabase.from('filter_options').select('*')
           .then(res => {
             if (res.data) {
+              setAllFilterOptions(res.data);
               const types = Array.from(new Set(res.data.map(d => d.type)));
-              // Filter out the base types since we manually display food_restrictions, payments, etc. elsewhere or individually
               const custom = types.filter(t => !['cuisine', 'restriction', 'payment', 'area'].includes(t));
-              setCustomFilterTypes(custom);
+              setCustomFilterTypes(custom as string[]);
+            }
+          }),
+          
+        supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle()
+          .then(res => {
+            if (res.data?.data?.sections) {
+              const allBlocks: any[] = [];
+              const extractBlocks = (blocks: any[]) => {
+                blocks.forEach(b => {
+                  allBlocks.push(b);
+                  if (b.conditions) b.conditions.forEach((c: any) => extractBlocks(c.blocks));
+                });
+              };
+              res.data.data.sections.forEach((s: any) => extractBlocks(s.blocks));
+              setFormSchemaBlocks(allBlocks);
             }
           })
       ]);
@@ -104,8 +125,11 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const displayTitle = currentLang === 'ja' ? restaurant.title : (restaurant.translations?.[currentLang]?.title || restaurant.title);
   const displayDescription = currentLang === 'ja' ? restaurant.description : (restaurant.translations?.[currentLang]?.description || restaurant.description);
   const displayMenu = currentLang === 'ja' ? restaurant.full_menu : (restaurant.translations?.[currentLang]?.full_menu || restaurant.full_menu);
-  const displayTakeout = currentLang === 'ja' ? restaurant.takeout_menu : (restaurant.translations?.[currentLang]?.takeout_menu || restaurant.takeout_menu);
+  
+  const takeoutData = restaurant.takeout_menu || restaurant.custom_fields?.takeout_available_text;
+  const displayTakeout = currentLang === 'ja' ? takeoutData : (restaurant.translations?.[currentLang]?.takeout_menu || takeoutData);
 
+  // FIX: Properly constructed Google Maps URL
   const mapEmbedUrl = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}&t=&z=16&ie=UTF8&iwloc=&output=embed` : null;
   const mapOutboundLink = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}` : null;
 
@@ -118,6 +142,8 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
       alert(t('share_copied', 'リンクをコピーしました！ / Link copied!'));
     }
   };
+
+  const actualEvents = (restaurant.other_options || []).filter((catName: string) => allCategories.some(c => c.name === catName));
 
   return (
     <>
@@ -171,7 +197,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-gray-100 pb-8">
             <div>
               <h1 className="text-4xl md:text-5xl font-black text-gray-900 tracking-tight mb-2">{displayTitle}</h1>
-              {restaurant.participates_in_event && <span className="inline-block mt-2 mb-2 bg-pink-100 text-pink-800 text-sm font-black px-4 py-1.5 rounded-full shadow-sm border border-pink-200">{t('badge_event_full', '🎉 イベント参加店舗')}</span>}
+              {actualEvents.length > 0 && <span className="inline-block mt-2 mb-2 bg-pink-100 text-pink-800 text-sm font-black px-4 py-1.5 rounded-full shadow-sm border border-pink-200">{t('badge_event_full', '🎉 イベント参加店舗')}</span>}
               {restaurant.cuisine && restaurant.cuisine.length > 0 && <p className="text-orange-600 font-bold mt-2">{restaurant.cuisine.map((c: string) => t(`tag_${c}`, c)).join(' • ')}</p>}
             </div>
             {restaurant.restaurant_price && (
@@ -187,10 +213,11 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
             <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center"><span className="text-3xl mr-3">📋</span> {t('label_menu_full', 'メニュー')}</h2>
             <div className="bg-gray-50 p-6 md:p-8 rounded-3xl border border-gray-100">
               {displayMenu ? <div className="text-gray-800 font-medium leading-relaxed whitespace-pre-wrap">{displayMenu}</div> : <p className="text-gray-500 italic">{t('menu_coming_soon', 'メニューの詳細は現在準備中です。')}</p>}
-              {restaurant.takeout_available && (
+              
+              {(restaurant.takeout_available || displayTakeout) && (
                 <div className="mt-8 pt-6 border-t border-gray-200">
                   <h3 className="text-sm font-black text-orange-900 uppercase tracking-wider mb-3 flex items-center">{t('label_takeout_full', '🛍️ テイクアウトメニュー')}</h3>
-                  <p className="text-gray-800 font-medium">{displayTakeout || t('takeout_available', 'テイクアウト対応あり')}</p>
+                  <p className="text-gray-800 font-medium whitespace-pre-wrap">{displayTakeout || t('takeout_available', 'テイクアウト対応あり')}</p>
                 </div>
               )}
             </div>
@@ -209,10 +236,10 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
             </div>
           )}
 
-          {restaurant.other_options && restaurant.other_options.length > 0 && (
+          {actualEvents.length > 0 && (
             <div className="space-y-6 mb-12">
               <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center"><span className="text-3xl mr-3">🎉</span> {t('label_events_campaigns', 'イベント＆キャンペーン')}</h2>
-              {restaurant.other_options.map((catName: string) => {
+              {actualEvents.map((catName: string) => {
                 const categoryData = allCategories.find(c => c.name === catName);
                 const isConstant = categoryData?.is_constant === true;
                 const globalDesc = categoryData ? (currentLang === 'ja' ? categoryData.description : (categoryData.translations?.[currentLang]?.description || categoryData.description)) : '';
@@ -246,10 +273,11 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                 {restaurant.avg_stay_time && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">⏳</span> {t('label_stay_time', '滞在時間: {{time}}', { time: restaurant.avg_stay_time })}</li>}
                 {restaurant.payment_methods && restaurant.payment_methods.length > 0 && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">💳</span> {restaurant.payment_methods.map((p: string) => t(`tag_${p}`, p)).join('、 ')}</li>}
                 
-                {/* Dynamically render any custom categories created by admins */}
                 {customFilterTypes.map(type => {
-                  const values = restaurant[type] || restaurant.custom_fields?.[type];
-                  if (!values || !Array.isArray(values) || values.length === 0) return null;
+                  const validTagsForType = allFilterOptions.filter(f => f.type === type).map(f => f.name);
+                  const values = restaurant.other_options?.filter((opt: string) => validTagsForType.includes(opt));
+                  
+                  if (!values || values.length === 0) return null;
                   
                   return (
                     <li key={type} className="flex items-start">
@@ -257,6 +285,27 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                       <span>
                         <span className="font-bold text-gray-500 mr-2">{type.charAt(0).toUpperCase() + type.slice(1)}:</span> 
                         {values.map((v: string) => t(`tag_${v}`, v)).join('、 ')}
+                      </span>
+                    </li>
+                  );
+                })}
+
+                {restaurant.custom_fields && Object.entries(restaurant.custom_fields).map(([key, value]) => {
+                  if (!value) return null; 
+
+                  const schemaBlock = formSchemaBlocks.find(b => b.dbColumn === `custom_fields.${key}`);
+                  if (!schemaBlock || schemaBlock.isPublicCustomField === false) return null;
+
+                  const displayLabel = schemaBlock.label;
+
+                  return (
+                    <li key={key} className="flex items-start">
+                      <span className="w-6 text-xl mr-3 text-center">💡</span> 
+                      <span>
+                        <span className="font-bold text-gray-500 mr-2">{displayLabel}:</span> 
+                        <span className="whitespace-pre-wrap">
+                          {Array.isArray(value) ? value.join('、 ') : String(value)}
+                        </span>
                       </span>
                     </li>
                   );

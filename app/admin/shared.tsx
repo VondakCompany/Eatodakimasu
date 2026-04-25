@@ -1,7 +1,6 @@
 'use client';
 import { supabase } from '@/lib/supabaseClient';
 
-// Clean, professional SVG icons (Heroicons outline style)
 export const Icons = {
   Directory: (props: any) => <svg {...props} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" /></svg>,
   Pending: (props: any) => <svg {...props} fill="none" viewBox="0 0 24 24" strokeWidth="2" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>,
@@ -46,8 +45,12 @@ export const getDbField = (type: string) => {
     case 'cuisine': return 'cuisine';
     case 'restriction': return 'food_restrictions';
     case 'payment': return 'payment_methods';
-    case 'area': return 'restaurant_area';
-    default: return type;
+    case 'campus': return 'restaurant_area'; 
+    case 'area': return 'restaurant_area'; 
+    case 'other': return 'other_options';
+    case 'discount_type': return 'discount_type';
+    case 'seats': return 'total_seats';
+    default: return 'other_options';
   }
 };
 
@@ -80,6 +83,22 @@ export const RestaurantCard = ({
       )}
     </div>
     <p className="text-xs text-orange-500 font-bold mb-4">¥{restaurant.restaurant_price || '---'}</p>
+
+    {/* ADMIN VISIBILITY: Shows standard tags AND all Custom Fields blindly */}
+    <div className="flex flex-wrap gap-1 mb-4">
+      {['cuisine', 'food_restrictions', 'payment_methods', 'restaurant_area', 'other_options']
+        .flatMap(field => restaurant[field] || [])
+        .concat(
+          restaurant.custom_fields
+            ? Object.values(restaurant.custom_fields).flatMap(val => Array.isArray(val) ? val : [val])
+            : []
+        )
+        .map((tag: any, idx) => (
+          <span key={`${tag}-${idx}`} className="text-[9px] font-black text-gray-500 bg-gray-100 px-2 py-1 rounded-md truncate max-w-[100px]" title={tag}>
+            {tag}
+          </span>
+      ))}
+    </div>
 
     <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 mb-5 space-y-1">
       <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1.5">

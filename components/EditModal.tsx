@@ -9,14 +9,14 @@ interface EditModalProps {
   restaurant: any;
   masterFilters: any[];
   customCategories: any[]; 
+  formSchema?: any[]; // Passed in to access dynamically generated blocks
   onSave: (updatedData: any) => Promise<void>;
 }
 
-export default function EditModal({ isOpen, onClose, restaurant, masterFilters = [], customCategories = [], onSave }: EditModalProps) {
+export default function EditModal({ isOpen, onClose, restaurant, masterFilters = [], customCategories = [], formSchema = [], onSave }: EditModalProps) {
   const [formData, setFormData] = useState<any>({});
   const [isSaving, setIsSaving] = useState(false);
 
-  // Reset form data whenever the modal opens or the selected restaurant changes
   useEffect(() => {
     if (isOpen && restaurant) {
       setFormData({ ...restaurant });
@@ -25,7 +25,6 @@ export default function EditModal({ isOpen, onClose, restaurant, masterFilters =
 
   if (!isOpen || !restaurant) return null;
 
-  // Dynamically extract all unique category types from the database
   const types = Array.from(new Set(masterFilters.map(f => f.type)));
 
   const handleCheckboxChange = (type: string, name: string, isChecked: boolean) => {
@@ -39,9 +38,20 @@ export default function EditModal({ isOpen, onClose, restaurant, masterFilters =
     }
   };
 
+  const handleCustomFieldChange = (dbColumnRaw: string, name: string, isChecked: boolean) => {
+    const jsonKey = dbColumnRaw.replace('custom_fields.', '');
+    const currentCustomFields = formData.custom_fields || {};
+    const currentArray = Array.isArray(currentCustomFields[jsonKey]) ? currentCustomFields[jsonKey] : [];
+    
+    if (isChecked) {
+        setFormData({ ...formData, custom_fields: { ...currentCustomFields, [jsonKey]: [...currentArray, name] } });
+    } else {
+        setFormData({ ...formData, custom_fields: { ...currentCustomFields, [jsonKey]: currentArray.filter((item: string) => item !== name) } });
+    }
+  };
+
   const handleCategoryChange = (name: string, isChecked: boolean) => {
     const currentArray = formData['other_options'] || [];
-    
     if (isChecked) {
       setFormData({ ...formData, other_options: [...currentArray, name] });
     } else {
@@ -62,7 +72,6 @@ export default function EditModal({ isOpen, onClose, restaurant, masterFilters =
     }
   };
 
-  // Helper to dynamically format header text (e.g., "cuisine" -> "CUISINES", "payment_method" -> "PAYMENT METHODS")
   const formatHeader = (text: string) => {
     if (!text) return '';
     const formatted = text.replace(/_/g, ' ').toUpperCase();
@@ -71,16 +80,13 @@ export default function EditModal({ isOpen, onClose, restaurant, masterFilters =
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 sm:p-6">
-      {/* Blurred Backdrop */}
       <div 
         className="absolute inset-0 bg-black/40 backdrop-blur-sm transition-opacity"
         onClick={onClose}
       />
 
-      {/* Modal Container */}
       <div className="relative bg-white w-full max-w-5xl rounded-[32px] shadow-2xl flex flex-col max-h-[90vh] animate-in fade-in zoom-in-95 duration-200">
         
-        {/* Header */}
         <div className="flex justify-between items-start p-8 border-b border-gray-100 shrink-0">
           <div>
             <h2 className="text-3xl font-black text-gray-900 tracking-tight">Edit Details</h2>
@@ -94,15 +100,13 @@ export default function EditModal({ isOpen, onClose, restaurant, masterFilters =
           </button>
         </div>
 
-        {/* Scrollable Body */}
         <div className="p-8 overflow-y-auto flex-1 custom-scrollbar">
           <div className="mb-8">
             <h3 className="text-xl font-black text-gray-900 border-b border-gray-100 pb-4 mb-6">Filter Tags & Categories</h3>
             
-            {/* Seamless Grid containing BOTH Dynamic Master Filters and Custom Categories */}
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
               
-              {/* 1. Fully Dynamic Master Filter Columns */}
+              {/* 1. Dynamic Master Filters */}
               {types.map((type) => {
                 const options = masterFilters.filter(f => f.type === type);
                 if (options.length === 0) return null;
@@ -141,7 +145,44 @@ export default function EditModal({ isOpen, onClose, restaurant, masterFilters =
                 );
               })}
 
-              {/* 2. Custom Events/Categories Column */}
+              {/* 2. Dynamically Generated Custom Fields */}
+              {formSchema.filter(b => b.dbColumn?.startsWith('custom_fields.') && b.isPublicCustomField !== false).map((block) => (
+                  <div key={block.id} className="flex flex-col">
+                    <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">
+                      {block.label}
+                    </h4>
+                    <div className="flex flex-col gap-2">
+                      {block.options?.map((opt: string) => {
+                        const jsonKey = block.dbColumn.replace('custom_fields.', '');
+                        const currentArray = formData.custom_fields?.[jsonKey] || [];
+                        const isSelected = Array.isArray(currentArray) ? currentArray.includes(opt) : currentArray === opt;
+
+                        return (
+                          <label 
+                            key={opt} 
+                            className={`flex items-center gap-3 p-3 rounded-xl border cursor-pointer transition-all ${
+                              isSelected 
+                                ? 'border-orange-200 bg-orange-50/30' 
+                                : 'border-gray-100 hover:border-gray-200 hover:bg-gray-50'
+                            }`}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={(e) => handleCustomFieldChange(block.dbColumn, opt, e.target.checked)}
+                              className="w-5 h-5 rounded text-orange-600 accent-orange-600 border-gray-300 focus:ring-orange-500 focus:ring-offset-0 cursor-pointer"
+                            />
+                            <span className={`text-sm font-bold ${isSelected ? 'text-gray-900' : 'text-gray-600'}`}>
+                              {opt}
+                            </span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </div>
+              ))}
+
+              {/* 3. Custom Events/Categories */}
               {customCategories.length > 0 && (
                 <div className="flex flex-col">
                   <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">
@@ -188,7 +229,6 @@ export default function EditModal({ isOpen, onClose, restaurant, masterFilters =
           </div>
         </div>
 
-        {/* Footer */}
         <div className="p-6 border-t border-gray-100 bg-gray-50/50 rounded-b-[32px] flex justify-end items-center gap-3 shrink-0">
           <button 
             onClick={onClose}

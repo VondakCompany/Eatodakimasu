@@ -7,12 +7,14 @@ export default function RestaurantCard({
   restaurant, 
   activeEvents = [],
   userLocation,
-  activeFilters = {}
+  activeFilters = {},
+  formSchema = []
 }: { 
   restaurant: any; 
   activeEvents?: any[];
   userLocation?: { lat: number; lng: number } | null;
   activeFilters?: { seatCapacity?: string; campusSort?: string; };
+  formSchema?: any[];
 }) {
   const { currentLang, t } = useLanguage();
 
@@ -49,26 +51,31 @@ export default function RestaurantCard({
   const walkFromUser = finalDistance !== undefined && !isNaN(finalDistance) ? Math.max(1, Math.ceil(finalDistance / 80)) : null;
   const walkFromCampus = restaurant.campus_dist_meters ? Math.max(1, Math.ceil(restaurant.campus_dist_meters / 80)) : null;
 
-  // Dynamically extract any custom category tags added via the Category Hub
-  const KNOWN_ARRAYS = ['cuisine', 'restaurant_area', 'food_restrictions', 'payment_methods', 'other_options', 'image_urls'];
-  const dynamicTags: string[] = [];
-  
-  // 1. Extract from dynamically added root-level array columns
-  Object.entries(restaurant).forEach(([key, value]) => {
-    if (Array.isArray(value) && !KNOWN_ARRAYS.includes(key)) {
-      dynamicTags.push(...value);
-    }
-  });
-  
-  // 2. Extract from JSONB custom_fields column
-  if (restaurant.custom_fields && typeof restaurant.custom_fields === 'object') {
-    Object.values(restaurant.custom_fields).forEach(val => {
-      if (Array.isArray(val)) dynamicTags.push(...(val as string[]));
+  let customTags: string[] = [];
+  if (restaurant.custom_fields && formSchema) {
+    Object.entries(restaurant.custom_fields).forEach(([key, val]) => {
+      const schemaBlock = formSchema.find(b => b.dbColumn === `custom_fields.${key}`);
+      
+      if (schemaBlock && schemaBlock.isPublicCustomField !== false) {
+        if (Array.isArray(val)) {
+          customTags.push(...val);
+        } else if (typeof val === 'string' && ['select', 'radio', 'checkbox'].includes(schemaBlock.type)) {
+          customTags.push(val);
+        }
+      }
     });
   }
 
-  // Deduplicate tags
-  const uniqueDynamicTags = Array.from(new Set(dynamicTags));
+  const nonEventOtherOptions = restaurant.other_options?.filter((opt: string) => !activeEvents.find(e => e.name === opt)) || [];
+
+  const allTags = Array.from(new Set([
+    ...(restaurant.cuisine || []),
+    ...(restaurant.restaurant_area || []),
+    ...(restaurant.food_restrictions || []),
+    ...(restaurant.payment_methods || []),
+    ...nonEventOtherOptions,
+    ...customTags
+  ]));
 
   return (
     <Link href={`/restaurant/${restaurant.id}`} className="block group h-full">
@@ -113,7 +120,10 @@ export default function RestaurantCard({
           {restaurant.other_options && restaurant.other_options.length > 0 && activeEvents && (
             <div className="absolute bottom-3 left-3 flex flex-wrap gap-1.5 z-10 pr-4">
               {restaurant.other_options.map((catName: string) => {
-                const isConstant = activeEvents.find(e => e.name === catName)?.is_constant;
+                const eventMatch = activeEvents.find(e => e.name === catName);
+                if (!eventMatch) return null;
+                
+                const isConstant = eventMatch.is_constant;
                 return (
                   <div key={catName} className={`px-3 py-1.5 rounded-xl shadow-lg flex items-center gap-1 border ${isConstant ? 'bg-slate-100/95 border-slate-200 text-slate-800' : 'bg-purple-100/95 border-purple-200 text-purple-800'}`}>
                     <span className="font-black text-[10px] tracking-tight">{t(`tag_${catName}`, catName)}</span>
@@ -132,16 +142,8 @@ export default function RestaurantCard({
           </div>
 
           <div className="flex flex-wrap gap-1.5 mb-4">
-            {/* Standard Cuisine Tags */}
-            {restaurant.cuisine && restaurant.cuisine.map((c: string) => (
-              <span key={`cuisine-${c}`} className="text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-1 rounded-lg">
-                {t(`tag_${c}`, c)}
-              </span>
-            ))}
-            
-            {/* Dynamic Custom Category Tags */}
-            {uniqueDynamicTags.map((tag) => (
-              <span key={`custom-${tag}`} className="text-[10px] font-black text-indigo-600 bg-indigo-50 px-2 py-1 rounded-lg">
+            {allTags.map((tag) => (
+              <span key={`tag-${tag}`} className="text-[10px] font-black text-orange-600 bg-orange-50 px-2 py-1 rounded-lg">
                 {t(`tag_${tag}`, tag)}
               </span>
             ))}

@@ -1,9 +1,9 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-import { Icons } from '@/app/admin/shared';
+import { Icons, getDbField } from '@/app/admin/shared';
 
-// New Controlled Component to handle local saving state and Enter key submissions
+// Controlled Component to handle local saving state and Enter key submissions
 function FilterRow({ filter, updateBaseTagName, deleteMasterFilter }: any) {
   const [val, setVal] = useState(filter.name);
   const [isSaving, setIsSaving] = useState(false);
@@ -44,7 +44,7 @@ function FilterRow({ filter, updateBaseTagName, deleteMasterFilter }: any) {
         className={`text-sm font-black text-gray-800 bg-transparent outline-none border-b border-transparent focus:border-orange-300 w-4/5 transition-opacity ${isSaving ? 'opacity-40 cursor-wait' : 'opacity-100'}`}
       />
       <button 
-        onClick={() => deleteMasterFilter(filter.id)} 
+        onClick={() => deleteMasterFilter(filter.id, filter.name, filter.type)} 
         disabled={isSaving}
         className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-0"
       >
@@ -74,26 +74,26 @@ export default function CategoryHub({
 
   const addCategory = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newCategoryName.trim()) return;
+    const trimmedName = newCategoryName.trim();
+    if (!trimmedName) return;
     
     const payload: any = { 
-      name: newCategoryName.trim(), 
+      name: trimmedName, 
       show_badge: false, 
       is_constant: newCategoryIsConstant 
     };
     
-    if (newCategoryStartDate && !newCategoryIsConstant) {
-      payload.start_date = new Date(newCategoryStartDate).toISOString();
-    }
-    if (newCategoryEndDate && !newCategoryIsConstant) {
-      payload.end_date = new Date(newCategoryEndDate).toISOString();
-    }
+    if (newCategoryStartDate && !newCategoryIsConstant) payload.start_date = new Date(newCategoryStartDate).toISOString();
+    if (newCategoryEndDate && !newCategoryIsConstant) payload.end_date = new Date(newCategoryEndDate).toISOString();
     
     const { error } = await supabase.from('custom_categories').insert([payload]);
     
     if (error) {
-      console.error("Error creating category:", error);
-      alert(`Failed to create event: ${error.message}`);
+      if (error.code === '23505' || error.message.includes('duplicate key')) {
+        alert(`The event "${trimmedName}" already exists!`);
+      } else {
+        alert(`Failed to create event: ${error.message}`);
+      }
     } else { 
       setNewCategoryName(''); 
       setNewCategoryStartDate(''); 
@@ -112,7 +112,7 @@ export default function CategoryHub({
         console.error("Delete Error:", error);
         alert(`Failed to delete event: ${error.message}`);
       } else {
-        // 2. Scrub from all restaurants to prevent "ghost" tags
+        // 2. Cascade scrub from all restaurants to prevent "ghost" tags
         const { data: restaurants } = await supabase.from('restaurants').select('id, other_options').contains('other_options', [name]);
         
         if (restaurants && restaurants.length > 0) {
@@ -130,7 +130,8 @@ export default function CategoryHub({
 
   const addMasterFilter = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!newFilterName.trim()) return;
+    const trimmedName = newFilterName.trim();
+    if (!trimmedName) return;
 
     const finalType = isCustomType ? customType.trim().toLowerCase().replace(/\s+/g, '_') : newFilterType;
     if (!finalType) {
@@ -138,12 +139,15 @@ export default function CategoryHub({
     }
 
     const { error } = await supabase.from('filter_options').insert([{ 
-      name: newFilterName.trim(), type: finalType, translations: {} 
+      name: trimmedName, type: finalType, translations: {} 
     }]);
     
     if (error) {
-      console.error("Error adding filter:", error);
-      alert(`Failed to add filter: ${error.message}`);
+      if (error.code === '23505') {
+        alert(`The tag "${trimmedName}" already exists in the database (possibly under a different category). Tag names must be completely unique!`);
+      } else {
+        alert(`Failed to add tag: ${error.message}`);
+      }
     } else { 
       setNewFilterName(''); 
       if (isCustomType) {
@@ -155,27 +159,59 @@ export default function CategoryHub({
     }
   };
 
-  const deleteMasterFilter = async (id: string) => {
-    if (confirm('Permanently delete this filter tag?')) {
+  const deleteMasterFilter = async (id: string, name: string, type: string) => {
+    if (confirm(`Permanently delete the tag "${name}"? This will also remove it from all restaurants.`)) {
+      // 1. Delete from filter_options
       const { error } = await supabase.from('filter_options').delete().eq('id', id);
+      
       if (error) {
         console.error("Delete Error:", error);
         alert(`Failed to delete filter: ${error.message}`);
       } else {
+        // 2. Cascade scrub the tag from the correct column in the restaurants table
+        const dbField = getDbField(type);
+        const { data: restaurants } = await supabase.from('restaurants').select(`id, ${dbField}`).contains(dbField, [name]);
+        
+        if (restaurants && restaurants.length > 0) {
+          const updatePromises = restaurants.map(r => {
+            const newOptions = (r[dbField] || []).filter((opt: string) => opt !== name);
+            return supabase.from('restaurants').update({ [dbField]: newOptions }).eq('id', r.id);
+          });
+          await Promise.all(updatePromises);
+        }
+        
         fetchAllData();
       }
     }
   };
 
-  // Deletes an entire custom category from the Master Filters
   const deleteMasterFilterCategory = async (type: string) => {
     const typeName = type.charAt(0).toUpperCase() + type.slice(1);
-    if (confirm(`Permanently delete the entire "${typeName}" category and all its tags?`)) {
+    if (confirm(`Permanently delete the entire "${typeName}" category? This will wipe all associated tags from every restaurant.`)) {
+      // 1. Identify all tags that belong to this category before deleting them
+      const tagsToRemove = masterFilters.filter((f: any) => f.type === type).map((f: any) => f.name);
+      const dbField = getDbField(type);
+
+      // 2. Delete the category from the database
       const { error } = await supabase.from('filter_options').delete().eq('type', type);
+      
       if (error) {
         console.error("Delete Category Error:", error);
         alert(`Failed to delete category: ${error.message}`);
       } else {
+        // 3. Cascade the deletion to the restaurants table
+        if (tagsToRemove.length > 0) {
+          const { data: restaurants } = await supabase.from('restaurants').select(`id, ${dbField}`).overlaps(dbField, tagsToRemove);
+          
+          if (restaurants && restaurants.length > 0) {
+            const updatePromises = restaurants.map(r => {
+              const newOptions = (r[dbField] || []).filter((opt: string) => !tagsToRemove.includes(opt));
+              return supabase.from('restaurants').update({ [dbField]: newOptions }).eq('id', r.id);
+            });
+            await Promise.all(updatePromises);
+          }
+        }
+        
         fetchAllData();
       }
     }

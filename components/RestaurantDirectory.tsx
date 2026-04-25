@@ -1,77 +1,136 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabaseClient';
 import RestaurantCard from './RestaurantCard';
+import { getDbField } from '@/app/admin/shared'; // RESTORED IMPORT
 
 export default function RestaurantDirectory({ initialRestaurants }: { initialRestaurants: any[] }) {
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterRestriction, setFilterRestriction] = useState('');
-  const [filterArea, setFilterArea] = useState('');
+  
+  // This state holds the selections for ALL dynamic tags
+  const [activeFilters, setActiveFilters] = useState<Record<string, string>>({});
+  const [masterFilters, setMasterFilters] = useState<any[]>([]);
 
-  // Extract unique filter options from the dataset
-  const allRestrictions = Array.from(new Set(initialRestaurants.flatMap(r => r.food_restrictions || [])));
-  const allAreas = Array.from(new Set(initialRestaurants.flatMap(r => r.restaurant_area || [])));
+  // FETCH DYNAMIC FILTERS FROM DATABASE
+  useEffect(() => {
+    supabase.from('filter_options')
+      .select('*')
+      .order('name')
+      .then(({ data }) => {
+        if (data) setMasterFilters(data);
+      });
+  }, []);
 
-  // Real-time filtering logic
+  const filterTypes = Array.from(new Set(masterFilters.map(f => f.type)));
+
+  const handleFilterChange = (type: string, value: string) => {
+    setActiveFilters(prev => ({ ...prev, [type]: value }));
+  };
+
+  const handleReset = () => {
+    setSearchQuery('');
+    setActiveFilters({});
+  };
+
+  // BULLETPROOF CLIENT-SIDE FILTERING
   const filteredRestaurants = initialRestaurants.filter((restaurant) => {
-    // 1. Text Search (Title or Description)
-    const textMatch = 
+    
+    // 1. Text Search
+    const textMatch = !searchQuery || 
       restaurant.title?.toLowerCase().includes(searchQuery.toLowerCase()) || 
       restaurant.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      restaurant.cuisine?.join(' ').toLowerCase().includes(searchQuery.toLowerCase());
+      (restaurant.cuisine && restaurant.cuisine.includes(searchQuery));
 
-    // 2. Dropdown Filters
-    const restrictionMatch = filterRestriction === '' || (restaurant.food_restrictions && restaurant.food_restrictions.includes(filterRestriction));
-    const areaMatch = filterArea === '' || (restaurant.restaurant_area && restaurant.restaurant_area.includes(filterArea));
+    // 2. Dynamic Database Filters Match
+    let dynamicMatch = true;
+    Object.entries(activeFilters).forEach(([type, filterValue]) => {
+      if (filterValue === '') return; // Skip unselected dropdowns
+      
+      // Use your shared function to map the filter type to the actual column name
+      const dbColumnName = getDbField(type);
+      const dbValue = restaurant[dbColumnName];
 
-    return textMatch && restrictionMatch && areaMatch;
+      // --- SPECIAL LOGIC FOR SEATS ---
+      if (type === 'seats') {
+        const rawSeats = (dbValue || '').toString();
+        // Extract all numbers from strings like "店内50席、テラス20席" and sum them up
+        const numbers = rawSeats.match(/\d+/g);
+        const seatNumber = numbers ? numbers.reduce((sum: number, num: string) => sum + parseInt(num, 10), 0) : 0;
+        
+        let matchesSeat = false;
+        if (filterValue === '1-10 席' && seatNumber >= 1 && seatNumber <= 10) matchesSeat = true;
+        else if (filterValue === '11-30 席' && seatNumber >= 11 && seatNumber <= 30) matchesSeat = true;
+        else if (filterValue === '31 席以上' && seatNumber >= 31) matchesSeat = true;
+        
+        if (!matchesSeat) dynamicMatch = false;
+        return; 
+      }
+
+      // --- STANDARD LOGIC FOR EVERYTHING ELSE ---
+      // Normalize both arrays and stringified arrays into a simple, searchable string
+      const safeDbString = typeof dbValue === 'string' 
+        ? dbValue 
+        : Array.isArray(dbValue) ? JSON.stringify(dbValue) : '';
+
+      if (!safeDbString.includes(filterValue)) {
+        dynamicMatch = false;
+      }
+    });
+
+    return textMatch && dynamicMatch;
   });
+
+  const hasActiveFilters = searchQuery !== '' || Object.values(activeFilters).some(v => v !== '');
 
   return (
     <div className="space-y-8">
       {/* Search and Filter Bar */}
-      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4">
+      <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row flex-wrap gap-4">
         
         {/* Text Search */}
-        <div className="flex-1">
+        <div className="flex-1 min-w-[200px]">
           <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">キーワード検索</label>
           <input 
             type="text" 
-            placeholder="レストラン名、キーワード、ジャンル等"
+            placeholder="レストラン名、キーワード等"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-gray-900 outline-none transition"
           />
         </div>
 
-        {/* Filters */}
-        <div className="flex-1 md:w-1/4">
-          <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">エリア</label>
-          <select 
-            value={filterArea}
-            onChange={(e) => setFilterArea(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-gray-900 outline-none transition cursor-pointer appearance-none"
-          >
-            <option value="">すべて</option>
-            {allAreas.map(area => (
-              <option key={area as string} value={area as string}>{area as string}</option>
-            ))}
-          </select>
-        </div>
+        {/* Dynamically Generated Database Dropdowns */}
+        {filterTypes.map(type => {
+          const options = masterFilters.filter(f => f.type === type);
+          if (options.length === 0) return null;
 
-        <div className="flex-1 md:w-1/4">
-          <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">食の制限</label>
-          <select 
-            value={filterRestriction}
-            onChange={(e) => setFilterRestriction(e.target.value)}
-            className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-gray-900 outline-none transition cursor-pointer appearance-none"
-          >
-            <option value="">すべて</option>
-            {allRestrictions.map(res => (
-              <option key={res as string} value={res as string}>{res as string}</option>
-            ))}
-          </select>
-        </div>
+          // Format the label neatly for the UI (Translates common keys, otherwise capitalizes the new key)
+          const label = type === 'restriction' ? '食の制限' :
+                        type === 'campus' ? 'エリア' :
+                        type === 'cuisine' ? 'ジャンル' :
+                        type === 'payment' ? '決済方法' : 
+                        type === 'seats' ? '席数' :
+                        type === 'discount_type' ? '割引タイプ' :
+                        type === 'other' ? 'その他' : 
+                        type.charAt(0).toUpperCase() + type.slice(1); // Fallback for new CategoriesHub columns
+
+          return (
+            <div key={type} className="flex-1 min-w-[150px]">
+              <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1">{label}</label>
+              <select 
+                value={activeFilters[type] || ''}
+                onChange={(e) => handleFilterChange(type, e.target.value)}
+                className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-lg focus:bg-white focus:ring-2 focus:ring-gray-900 outline-none transition cursor-pointer appearance-none"
+              >
+                <option value="">すべて</option>
+                {options.map(opt => (
+                  <option key={opt.id} value={opt.name}>{opt.name}</option>
+                ))}
+              </select>
+            </div>
+          );
+        })}
       </div>
 
       {/* Dynamic Results Count */}
@@ -80,10 +139,10 @@ export default function RestaurantDirectory({ initialRestaurants }: { initialRes
           検索結果: <span className="font-bold text-gray-900">{filteredRestaurants.length}</span>件
         </p>
         
-        {(searchQuery || filterRestriction || filterArea) && (
+        {hasActiveFilters && (
           <button 
-            onClick={() => { setSearchQuery(''); setFilterRestriction(''); setFilterArea(''); }}
-            className="text-sm font-bold text-red-600 hover:text-red-800 transition"
+            onClick={handleReset}
+            className="text-sm font-bold text-red-600 hover:text-red-800 transition bg-red-50 px-3 py-1.5 rounded-lg"
           >
             リセット
           </button>

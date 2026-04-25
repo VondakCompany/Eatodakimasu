@@ -20,7 +20,8 @@ interface FormBlock {
   dbColumn: string; 
   required: boolean;
   validation?: 'none' | 'email' | 'url' | 'number' | 'phone';
-  conditions?: FormCondition[]; 
+  conditions?: FormCondition[];
+  isPublicCustomField?: boolean;
 }
 
 interface FormSection {
@@ -43,6 +44,24 @@ interface VersionHistory {
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
 
+// Standard base columns now strictly typed
+const BASE_COLUMNS = [
+  { id: 'title', label: '店舗名 (Title)', dataType: 'string' },
+  { id: 'description', label: '店舗紹介 (Description)', dataType: 'string' },
+  { id: 'address', label: '住所 (Address)', dataType: 'string' },
+  { id: 'restaurant_price', label: '平均予算 (Price)', dataType: 'string' },
+  { id: 'total_seats', label: '総席数 (Total Seats)', dataType: 'string' },
+  { id: 'avg_stay_time', label: '滞在時間 (Stay Time)', dataType: 'string' },
+  { id: 'takeout_menu', label: 'テイクアウトメニュー (Takeout Menu)', dataType: 'string' },
+  { id: 'operating_hours', label: '営業時間 (Operating Hours)', dataType: 'string' },
+  { id: 'hours_source', label: '営業時間ソース (Hours Source)', dataType: 'string' },
+  { id: 'contact_name', label: '担当者名 (Contact Name) - PRIVATE', dataType: 'string' },
+  { id: 'contact_phone', label: '電話番号 (Contact Phone) - PRIVATE', dataType: 'string' },
+  { id: 'contact_email', label: 'メールアドレス (Contact Email) - PRIVATE', dataType: 'string' },
+  { id: 'photo_method', label: '写真提供方法 (Photo Method) - PRIVATE', dataType: 'string' },
+  { id: 'admin_notes', label: '管理者メモ (Admin Notes) - PRIVATE', dataType: 'string' }
+];
+
 const BASELINE_SCHEMA: FormSchema = {
   pageTitle: "ワセメシ情報ご提供のお願い",
   pageDescription: "私たちは早稲田大学国際教養学部の「イートチーム」と申します。\n「ワセメシ」の魅力をもっと多くの方に知っていただき、地域のお店と学生・観光客をつなぐ多言語対応のレストラン検索サイト「イートダキマス」を作成しています。\n\n・ 掲載はすべて無料です\n・ 頂いた情報を元に、こちらで多言語（英語等）に翻訳して掲載します\n・ 所要時間は5〜10分程度です",
@@ -58,62 +77,6 @@ const BASELINE_SCHEMA: FormSchema = {
         { id: "b_cemail", type: "text", label: "メールアドレス (非公開)", dbColumn: "contact_email", required: false, placeholder: "例：shop@example.com", validation: "email" },
         { id: "b_address", type: "text", label: "住所 (Web公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
       ]
-    },
-    {
-      id: "sec_2",
-      title: "2. 営業時間",
-      description: "※ 定休日の場合は未記入、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。",
-      blocks: [
-        { 
-          id: "b_hsource", 
-          type: "hours_source", 
-          label: "営業時間はどちらを参考にすればよろしいですか？", 
-          dbColumn: "hours_source", 
-          required: true, 
-          options: ["Googleマップと同じ", "店舗HPと同じ", "ここで手動で入力する"],
-          conditions: [
-            {
-              triggerValue: "ここで手動で入力する",
-              blocks: [
-                { id: "b_hmanual", type: "operating_hours", label: "手動入力", dbColumn: "operating_hours", required: false }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      id: "sec_3",
-      title: "3. お食事とサービス",
-      description: "",
-      blocks: [
-        { id: "b_cuisine", type: "checkbox", label: "代表的な料理ジャンル (複数可)", dbColumn: "cuisine", required: false, options: ['和食', '洋食', '中華', '韓国料理', 'インド料理', '東南アジア', 'ファストフード', 'カフェ・スイーツ', '寿司', '丼もの'] },
-        { id: "b_restrict", type: "checkbox", label: "食事制限への対応 (複数可)", dbColumn: "food_restrictions", required: false, options: ['ハラール', 'ヴィーガン', 'ベジタリアン', 'グルテンフリー', 'コーシャ', '乳製品不使用', 'ペスカタリアン'] },
-        { id: "b_price", type: "select", label: "1名あたりの平均ご利用金額（目安）", dbColumn: "restaurant_price", required: false, options: ["500", "1000", "1500", "2000", "3000", "5000"] },
-        { id: "b_desc", type: "textarea", label: "店舗紹介・おすすめメニュー", dbColumn: "description", required: false, placeholder: "お店の雰囲気や、学生に人気なメニューなど自由にご記入ください。" }
-      ]
-    },
-    {
-      id: "sec_4",
-      title: "4. 設備・テイクアウト",
-      description: "",
-      blocks: [
-        { id: "b_seats", type: "text", label: "総席数", dbColumn: "total_seats", required: false, placeholder: "例：30席" },
-        { id: "b_stay", type: "select", label: "平均滞接時間", dbColumn: "avg_stay_time", required: false, options: ["〜15分", "15分〜30分", "30分〜1時間", "1時間以上"] },
-        { id: "b_takeout", type: "radio", label: "テイクアウト（お持ち帰り）を行っている", dbColumn: "custom_fields.takeout_available_text", required: false, options: ["はい", "いいえ"] },
-        { id: "b_tmenu", type: "text", label: "テイクアウト可能なメニュー", dbColumn: "takeout_menu", required: false, placeholder: "例：お弁当各種、カレー" },
-        { id: "b_tmethod", type: "checkbox", label: "注文方法 (複数可)", dbColumn: "payment_methods", required: false, options: ['店頭注文', '電話注文', 'オンライン(Uber等)'] },
-        { id: "b_atom", type: "radio", label: "地域通貨「アトム通貨」は使えますか？", dbColumn: "custom_fields.atom_currency_text", required: false, options: ["はい", "いいえ"] }
-      ]
-    },
-    {
-      id: "sec_5",
-      title: "5. 写真のご提供方法",
-      description: "",
-      blocks: [
-        { id: "b_pmethod", type: "photo_method", label: "店舗やメニューの写真のご提供方法をお選びください", dbColumn: "photo_method", required: true, options: ["後でメールで送る", "店舗HPの写真を使用する", "スタッフに撮影を依頼する"] },
-        { id: "b_notes", type: "textarea", label: "その他ご質問・ご要望", dbColumn: "admin_notes", required: false, placeholder: "ご不明点があればご自由にご記入ください。" }
-      ]
     }
   ]
 };
@@ -124,10 +87,13 @@ export default function RegistrationEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
+  // Dynamic Master Tags from DB now typed as arrays
+  const [dynamicColumns, setDynamicColumns] = useState<{id: string, label: string, category: string, dataType: string}[]>([]);
+
   const [editingBlock, setEditingBlock] = useState<{ sectionId: string; blockId: string } | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
-  const [zoom, setZoom] = useState(1); 
+  const [viewport, setViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop'); 
 
   const [pendingDelete, setPendingDelete] = useState<{
     type: 'section' | 'block';
@@ -141,20 +107,35 @@ export default function RegistrationEditor() {
   useEffect(() => { fetchConfig(); }, []);
 
   const fetchConfig = async () => {
-    const [schemaRes, historyRes] = await Promise.all([
+    const [schemaRes, historyRes, filtersRes, catsRes] = await Promise.all([
       supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle(),
-      supabase.from('site_settings').select('data').eq('id', 'registration_schema_history').maybeSingle()
+      supabase.from('site_settings').select('data').eq('id', 'registration_schema_history').maybeSingle(),
+      supabase.from('filter_options').select('type, name'),
+      supabase.from('custom_categories').select('name')
     ]);
 
-    if (schemaRes.data && schemaRes.data.data.sections && schemaRes.data.data.sections.length > 0) {
+    if (schemaRes.data && schemaRes.data.data.sections?.length > 0) {
       setSchema(schemaRes.data.data);
     } else {
       setSchema(BASELINE_SCHEMA); 
     }
 
-    if (historyRes.data && historyRes.data.data.versions) {
+    if (historyRes.data?.data?.versions) {
       setHistory(historyRes.data.data.versions);
     }
+
+    const dynCols: {id: string, label: string, category: string, dataType: string}[] = [];
+    if (filtersRes.data) {
+      const types = Array.from(new Set(filtersRes.data.map(f => f.type)));
+      // Master filter tags map to text arrays in Supabase
+      types.forEach(t => dynCols.push({ id: t, label: `Tag Group: ${t.toUpperCase()}`, category: 'Master Tags', dataType: 'array' }));
+    }
+    if (catsRes.data) {
+      // Event categories map to the other_options text array in Supabase
+      dynCols.push({ id: 'other_options', label: 'Event Hub Categories (other_options)', category: 'Events', dataType: 'array' });
+    }
+    setDynamicColumns(dynCols);
+
     setLoading(false);
   };
 
@@ -179,11 +160,22 @@ export default function RegistrationEditor() {
       setShowHistoryModal(false);
       setEditingBlock(null);
       setIsSidebarOpen(false);
-      setZoom(1);
     }
   };
 
   const generateId = () => Math.random().toString(36).substring(2, 9);
+
+  const getUsedColumns = (blocks: FormBlock[]): string[] => {
+    let used: string[] = [];
+    blocks.forEach(b => {
+      used.push(b.dbColumn);
+      if (b.conditions) {
+        b.conditions.forEach(c => used.push(...getUsedColumns(c.blocks)));
+      }
+    });
+    return used;
+  };
+  const usedColumns = schema ? schema.sections.flatMap(s => getUsedColumns(s.blocks)) : [];
 
   const mutateBlockTree = (blocks: FormBlock[], mutator: (b: FormBlock) => FormBlock | null): FormBlock[] => {
     return blocks.map(b => {
@@ -204,15 +196,12 @@ export default function RegistrationEditor() {
 
   const confirmDelete = () => {
     if (!pendingDelete || !schema) return;
-    
     setSchema(prev => {
       if (!prev) return prev;
       const newSections = [...prev.sections];
-
       if (pendingDelete.type === 'section') {
         return { ...prev, sections: newSections.filter(s => s.id !== pendingDelete.sectionId) };
       } 
-      
       if (pendingDelete.type === 'block') {
         return {
           ...prev,
@@ -257,7 +246,7 @@ export default function RegistrationEditor() {
 
   const createNewBlock = (type: BlockType): FormBlock => ({
     id: generateId(), type, label: `New ${type}`, required: false, dbColumn: `custom_fields.${generateId()}`,
-    options: ['Option 1', 'Option 2'], content: '<p>Edit your text here.</p>'
+    options: ['Option 1', 'Option 2'], content: '<p>Edit your text here.</p>', isPublicCustomField: true
   });
 
   const addBlockToSection = (sectionId: string, type: BlockType) => {
@@ -280,7 +269,6 @@ export default function RegistrationEditor() {
             ...s,
             blocks: mutateBlockTree(s.blocks, b => {
               if (b.id !== parentBlockId) return b;
-              
               const newChild = createNewBlock(type);
               const existingConditions = b.conditions || [];
               const conditionIndex = existingConditions.findIndex(c => c.triggerValue === triggerValue);
@@ -321,7 +309,6 @@ export default function RegistrationEditor() {
 
   const renderCanvasBlock = (block: FormBlock, sectionId: string) => {
     const isEditing = editingBlock?.blockId === block.id;
-    
     return (
       <div key={block.id} className="mb-3">
         <div onClick={() => { setEditingBlock({ sectionId, blockId: block.id }); setIsSidebarOpen(true); }} className={`bg-white p-5 rounded-2xl border-2 transition cursor-pointer ${isEditing ? 'border-orange-500 shadow-md ring-4 ring-orange-50 scale-[1.01] z-20 relative' : 'border-gray-200 hover:border-gray-300'}`}>
@@ -346,16 +333,10 @@ export default function RegistrationEditor() {
                  </div>
               )}
 
-              {block.type === 'photo_method' && (
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                   {block.options?.map(opt => <div key={opt} className="p-3 rounded-xl border-2 border-gray-200 font-bold text-gray-600 text-sm">{opt}</div>)}
-                 </div>
-              )}
-
-              {block.type === 'text' && <div className="h-10 bg-gray-50 border border-gray-100 rounded-lg w-full"></div>}
-              {block.type === 'textarea' && <div className="h-20 bg-gray-50 border border-gray-100 rounded-lg w-full"></div>}
+              {block.type === 'text' && <div className="h-10 bg-gray-50 border border-gray-100 rounded-lg w-full px-3 flex items-center text-gray-400 text-sm">{block.placeholder || ''}</div>}
+              {block.type === 'textarea' && <div className="h-20 bg-gray-50 border border-gray-100 rounded-lg w-full p-3 text-gray-400 text-sm">{block.placeholder || ''}</div>}
               {block.type === 'select' && <div className="h-10 bg-gray-50 border border-gray-100 rounded-lg w-full flex items-center px-3 text-gray-400 text-sm">Dropdown...</div>}
-              {(block.type === 'checkbox' || block.type === 'radio') && (
+              {(block.type === 'checkbox' || block.type === 'radio' || block.type === 'photo_method') && (
                  <div className="flex flex-wrap gap-2 mt-2">
                    {block.options?.map((opt, i) => <div key={i} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-600 text-xs rounded-lg font-bold shadow-sm">{opt}</div>)}
                  </div>
@@ -398,23 +379,224 @@ export default function RegistrationEditor() {
     }
   }
 
+  const BlockPropertiesEditor = ({ block, sectionId }: { block: FormBlock, sectionId: string }) => {
+    const [local, setLocal] = useState(block);
+    
+    useEffect(() => { setLocal(block); }, [block.id]);
+
+    const handleBlur = () => { updateBlock(sectionId, block.id, local); };
+
+    const handleOptionsChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+      setLocal({ ...local, options: e.target.value.split('\n') });
+    };
+
+    const handleOptionsBlur = () => {
+      const newOptions = (local.options || []).map(s => s.trim()).filter(Boolean);
+      const oldOptions = block.options || [];
+      
+      const newConditions = (block.conditions || []).map(cond => {
+        const oldIndex = oldOptions.indexOf(cond.triggerValue);
+        if (oldIndex !== -1 && newOptions[oldIndex]) {
+           return { ...cond, triggerValue: newOptions[oldIndex] };
+        }
+        return cond;
+      });
+
+      const updated = { ...local, options: newOptions, conditions: newConditions };
+      setLocal(updated);
+      updateBlock(sectionId, block.id, updated);
+    };
+
+    const isCustomField = local.dbColumn.startsWith('custom_fields.');
+    
+    // Determine the expected data output type based on the block type
+    const blockExpectedType = block.type === 'checkbox' ? 'array' : 'string';
+
+    return (
+      <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
+        <div className="flex justify-between items-center border-b pb-4">
+           <span className="bg-orange-100 text-orange-800 text-xs font-black px-2 py-1 rounded uppercase">{block.type}</span>
+           <button onClick={() => setPendingDelete({ type: 'block', sectionId, blockId: block.id })} className="text-red-500 text-sm font-bold hover:underline">Delete Block</button>
+        </div>
+
+        {block.type !== 'html' && (
+          <>
+            <div>
+              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Display Label</label>
+              <input type="text" value={local.label} onChange={e => setLocal({...local, label: e.target.value})} onBlur={handleBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-bold outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
+            <div>
+              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Placeholder</label>
+              <input type="text" value={local.placeholder || ''} onChange={e => setLocal({...local, placeholder: e.target.value})} onBlur={handleBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-medium outline-none focus:ring-2 focus:ring-orange-500" />
+            </div>
+            
+            {block.type === 'text' && (
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Validation Rule</label>
+                <select value={local.validation || 'none'} onChange={e => { const val = e.target.value as any; setLocal({...local, validation: val}); updateBlock(sectionId, block.id, { validation: val }); }} className="w-full p-3 bg-gray-50 border rounded-xl font-bold outline-none focus:ring-2 focus:ring-orange-500">
+                  <option value="none">None (Standard Text)</option>
+                  <option value="email">Email Address</option>
+                  <option value="url">Website URL</option>
+                  <option value="number">Number Only</option>
+                  <option value="phone">Phone Number</option>
+                </select>
+              </div>
+            )}
+
+            <label className="flex items-center cursor-pointer p-3 bg-gray-50 border rounded-xl hover:bg-gray-100 transition">
+              <input type="checkbox" checked={local.required} onChange={e => { setLocal({...local, required: e.target.checked}); updateBlock(sectionId, block.id, { required: e.target.checked }); }} className="w-5 h-5 accent-orange-500 mr-3" />
+              <span className="font-bold text-gray-700">Required Field</span>
+            </label>
+          </>
+        )}
+
+        {block.type === 'html' && (
+          <div>
+             <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Raw HTML / Markdown</label>
+             <textarea rows={10} value={local.content || ''} onChange={e => setLocal({...local, content: e.target.value})} onBlur={handleBlur} className="w-full p-4 bg-gray-900 text-green-400 font-mono text-sm rounded-xl outline-none" placeholder="<p>Enter text...</p>" />
+          </div>
+        )}
+
+        {['select', 'checkbox', 'radio', 'hours_source', 'photo_method'].includes(block.type) && (
+          <div>
+            <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Options (One per line)</label>
+            <textarea rows={6} value={(local.options || []).join('\n')} onChange={handleOptionsChange} onBlur={handleOptionsBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-medium outline-none focus:ring-2 focus:ring-orange-500 whitespace-pre" />
+          </div>
+        )}
+
+        {['select', 'checkbox', 'radio', 'hours_source', 'photo_method'].includes(block.type) && (
+          <div className="pt-6 border-t border-gray-200">
+             <h4 className="text-xs font-black text-purple-600 uppercase tracking-widest mb-4">Conditional Logic</h4>
+             <p className="text-xs text-gray-500 mb-4 font-medium">Attach follow-up questions when a user selects specific options below.</p>
+             {block.options?.map(opt => {
+                const condition = block.conditions?.find(c => c.triggerValue === opt);
+                return (
+                  <div key={opt} className="mb-4 bg-purple-50 p-4 rounded-xl border border-purple-100">
+                    <span className="font-bold text-sm text-purple-900 block mb-2">If user selects: "{opt}"</span>
+                    <div className="space-y-2">
+                      {condition?.blocks.map(child => (
+                         <div key={child.id} className="flex justify-between items-center bg-white border border-purple-200 p-2 rounded-lg text-xs font-bold text-gray-700 shadow-sm">
+                           <span>↳ {child.label} <span className="text-[10px] text-gray-400 bg-gray-100 px-1 rounded ml-1">{child.type}</span></span>
+                           <button onClick={() => setEditingBlock({sectionId, blockId: child.id})} className="text-purple-600 hover:underline">Edit</button>
+                         </div>
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-2 mt-3">
+                      <button onClick={() => addBlockToCondition(sectionId, block.id, opt, 'operating_hours')} className="text-[10px] font-black uppercase tracking-wider bg-white border border-purple-200 text-purple-700 px-2 py-1.5 rounded hover:bg-purple-100">+ Add 7-Day Grid</button>
+                      <button onClick={() => addBlockToCondition(sectionId, block.id, opt, 'text')} className="text-[10px] font-black uppercase tracking-wider bg-white border border-purple-200 text-purple-700 px-2 py-1.5 rounded hover:bg-purple-100">+ Add Text Input</button>
+                    </div>
+                  </div>
+                )
+             })}
+          </div>
+        )}
+
+        <div className="pt-6 border-t border-gray-200 bg-blue-50/50 -mx-6 px-6 pb-6 mt-6 border-b">
+          <label className="block text-xs font-black text-blue-600 uppercase tracking-widest mb-2">Smart Database Mapping</label>
+          <p className="text-xs font-medium text-blue-800 mb-4">Select where this question's data should be saved.</p>
+          
+          <select 
+            value={local.dbColumn === 'NEW_CUSTOM' ? '' : local.dbColumn}
+            onChange={e => {
+              const val = e.target.value;
+              if (val === 'NEW_CUSTOM') {
+                const name = prompt('Enter a unique ID for your new custom field (e.g. wifi_info, budget_lunch):');
+                if (name) {
+                  const formattedName = `custom_fields.${name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
+                  setLocal({...local, dbColumn: formattedName});
+                  updateBlock(sectionId, block.id, { dbColumn: formattedName });
+                }
+              } else {
+                setLocal({...local, dbColumn: val});
+                updateBlock(sectionId, block.id, { dbColumn: val });
+              }
+            }}
+            className="w-full p-3 bg-white border border-blue-200 text-gray-900 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
+          >
+            <optgroup label="Standard Columns">
+              {BASE_COLUMNS.map(col => {
+                const isTypeMatch = col.dataType === blockExpectedType;
+                const isUsed = usedColumns.includes(col.id) && col.id !== local.dbColumn;
+                const disabled = isUsed || !isTypeMatch;
+                const labelSuffix = isUsed ? '(In Use)' : (!isTypeMatch ? '(Type Mismatch)' : '');
+                
+                return (
+                  <option key={col.id} value={col.id} disabled={disabled}>
+                    {col.label} {labelSuffix}
+                  </option>
+                );
+              })}
+            </optgroup>
+            
+            <optgroup label="Dynamic Master Tags">
+              {dynamicColumns.map(col => {
+                const isTypeMatch = col.dataType === blockExpectedType;
+                const isUsed = usedColumns.includes(col.id) && col.id !== local.dbColumn;
+                const disabled = isUsed || !isTypeMatch;
+                const labelSuffix = isUsed ? '(In Use)' : (!isTypeMatch ? '(Type Mismatch)' : '');
+
+                return (
+                  <option key={col.id} value={col.id} disabled={disabled}>
+                    {col.label} {labelSuffix}
+                  </option>
+                );
+              })}
+            </optgroup>
+
+            <optgroup label="Custom Fields">
+               {isCustomField && <option value={local.dbColumn}>{local.dbColumn} (Current Custom)</option>}
+               <option value="NEW_CUSTOM">+ Create New Custom Field...</option>
+            </optgroup>
+          </select>
+
+          {isCustomField && (
+            <div className="mt-4 p-4 bg-white border border-blue-100 rounded-xl shadow-sm">
+              <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Custom Field Visibility</span>
+              <label className="flex items-center cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={local.isPublicCustomField !== false} 
+                  onChange={e => {
+                    setLocal({...local, isPublicCustomField: e.target.checked}); 
+                    updateBlock(sectionId, block.id, { isPublicCustomField: e.target.checked });
+                  }} 
+                  className="w-5 h-5 accent-blue-600 mr-3" 
+                />
+                <span className="font-bold text-sm text-gray-700">Make Public (Show on Web & Cards)</span>
+              </label>
+              <p className="text-xs text-gray-500 mt-2 font-medium">If unchecked, data saved here will only be visible to Admins in the CMS.</p>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   if (loading || !schema) return <div className="p-10 font-bold text-gray-500 animate-pulse">Loading Builder Engine...</div>;
 
+  const getViewportWidth = () => {
+    if (viewport === 'mobile') return 'max-w-md';
+    if (viewport === 'tablet') return 'max-w-3xl';
+    return 'max-w-4xl';
+  };
+
   return (
-    <div className="flex justify-center mx-auto items-start min-h-screen relative bg-gray-100">
+    <div className="flex justify-center mx-auto items-start min-h-screen relative bg-gray-100 pb-40">
       
       {/* WRAPPER */}
-      <div className={`w-full max-w-4xl transition-all duration-300 ${isSidebarOpen ? 'mr-[400px]' : ''} flex flex-col p-6`}>
+      <div className={`w-full transition-all duration-300 ${isSidebarOpen ? 'mr-[400px]' : ''} flex flex-col items-center p-6`}>
         
         {/* TOOLBAR */}
-        <div className="flex justify-between items-center mb-6 sticky top-4 z-40 bg-white/90 backdrop-blur-md p-4 rounded-[24px] shadow-sm border border-gray-200 w-full">
+        <div className="flex justify-between items-center mb-8 sticky top-4 z-40 bg-white/90 backdrop-blur-md p-4 rounded-[24px] shadow-sm border border-gray-200 w-full max-w-5xl">
           <div><h2 className="text-xl font-black text-gray-900 tracking-tight">Form Builder</h2></div>
           <div className="flex items-center gap-4">
-            <div className="flex items-center bg-gray-100 rounded-full p-1 border border-gray-200">
-              <button onClick={() => setZoom(z => Math.max(z - 0.1, 0.4))} className="w-8 h-8 rounded-full flex items-center justify-center font-black text-gray-500 hover:bg-white hover:shadow-sm transition">-</button>
-              <span className="w-14 text-center text-xs font-black text-gray-700 cursor-pointer" onClick={() => setZoom(1)} title="Reset Zoom">{Math.round(zoom * 100)}%</span>
-              <button onClick={() => setZoom(z => Math.min(z + 0.1, 1.5))} className="w-8 h-8 rounded-full flex items-center justify-center font-black text-gray-500 hover:bg-white hover:shadow-sm transition">+</button>
+            
+            <div className="flex bg-gray-100 rounded-lg p-1 border border-gray-200">
+               <button onClick={() => setViewport('mobile')} className={`px-3 py-1.5 text-xs font-black rounded-md transition ${viewport === 'mobile' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-700'}`}>Mobile</button>
+               <button onClick={() => setViewport('tablet')} className={`px-3 py-1.5 text-xs font-black rounded-md transition ${viewport === 'tablet' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-700'}`}>Tablet</button>
+               <button onClick={() => setViewport('desktop')} className={`px-3 py-1.5 text-xs font-black rounded-md transition ${viewport === 'desktop' ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-700'}`}>Desktop</button>
             </div>
+
             <div className="h-6 w-px bg-gray-300"></div>
             <button onClick={() => setShowHistoryModal(true)} className="bg-amber-50 text-amber-600 border border-amber-200 px-4 py-2 rounded-full font-bold text-sm hover:bg-amber-100 transition">History</button>
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`px-4 py-2 rounded-full font-bold text-sm transition ${isSidebarOpen ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Properties</button>
@@ -423,10 +605,10 @@ export default function RegistrationEditor() {
         </div>
 
         {/* CANVAS */}
-        <div className="w-full space-y-6 pb-40 transition-transform duration-200" style={{ transform: `scale(${zoom})`, transformOrigin: 'top center' }}>
+        <div className={`w-full transition-all duration-300 ${getViewportWidth()} space-y-6`}>
           <div className="bg-white p-8 rounded-[32px] border border-gray-200 shadow-sm relative z-10">
             <label className="text-xs font-black text-gray-400 uppercase tracking-widest mb-2 block">Global Form Header</label>
-            <input type="text" value={schema.pageTitle} onChange={e => setSchema({...schema, pageTitle: e.target.value})} className="w-full text-3xl font-black mb-4 outline-none placeholder-gray-300" placeholder="Page Title" />
+            <input type="text" value={schema.pageTitle} onChange={e => setSchema({...schema, pageTitle: e.target.value})} className="w-full text-3xl md:text-4xl font-black mb-4 outline-none placeholder-gray-300" placeholder="Page Title" />
             <textarea rows={6} value={schema.pageDescription} onChange={e => setSchema({...schema, pageDescription: e.target.value})} className="w-full text-gray-600 font-medium outline-none resize-none placeholder-gray-300" placeholder="Page Description (supports newlines)" />
           </div>
 
@@ -478,96 +660,7 @@ export default function RegistrationEditor() {
           {!editingBlock || !activeEditingBlockProps ? (
             <div className="text-center text-gray-400 font-bold mt-20">Click an element on the canvas to edit its properties.</div>
           ) : (
-            <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
-              <div className="flex justify-between items-center border-b pb-4">
-                 <span className="bg-orange-100 text-orange-800 text-xs font-black px-2 py-1 rounded uppercase">{activeEditingBlockProps.type}</span>
-                 <button onClick={() => setPendingDelete({ type: 'block', sectionId: editingBlock.sectionId, blockId: activeEditingBlockProps!.id })} className="text-red-500 text-sm font-bold hover:underline">Delete Block</button>
-              </div>
-
-              {activeEditingBlockProps.type !== 'html' && (
-                <>
-                  <div>
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Display Label</label>
-                    <input type="text" value={activeEditingBlockProps.label} onChange={e => updateBlock(editingBlock.sectionId, activeEditingBlockProps!.id, { label: e.target.value })} className="w-full p-3 bg-gray-50 border rounded-xl font-bold outline-none focus:ring-2 focus:ring-orange-500" />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Placeholder</label>
-                    <input type="text" value={activeEditingBlockProps.placeholder || ''} onChange={e => updateBlock(editingBlock.sectionId, activeEditingBlockProps!.id, { placeholder: e.target.value })} className="w-full p-3 bg-gray-50 border rounded-xl font-medium outline-none focus:ring-2 focus:ring-orange-500" />
-                  </div>
-                  
-                  {activeEditingBlockProps.type === 'text' && (
-                    <div>
-                      <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Validation Rule</label>
-                      <select 
-                        value={activeEditingBlockProps.validation || 'none'} 
-                        onChange={e => updateBlock(editingBlock.sectionId, activeEditingBlockProps!.id, { validation: e.target.value as any })}
-                        className="w-full p-3 bg-gray-50 border rounded-xl font-bold outline-none focus:ring-2 focus:ring-orange-500"
-                      >
-                        <option value="none">None (Standard Text)</option>
-                        <option value="email">Email Address</option>
-                        <option value="url">Website URL</option>
-                        <option value="number">Number Only</option>
-                        <option value="phone">Phone Number</option>
-                      </select>
-                    </div>
-                  )}
-
-                  <label className="flex items-center cursor-pointer p-3 bg-gray-50 border rounded-xl hover:bg-gray-100 transition">
-                    <input type="checkbox" checked={activeEditingBlockProps.required} onChange={e => updateBlock(editingBlock.sectionId, activeEditingBlockProps!.id, { required: e.target.checked })} className="w-5 h-5 accent-orange-500 mr-3" />
-                    <span className="font-bold text-gray-700">Required Field</span>
-                  </label>
-                </>
-              )}
-
-              {activeEditingBlockProps.type === 'html' && (
-                <div>
-                   <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Raw HTML / Markdown</label>
-                   <textarea rows={10} value={activeEditingBlockProps.content || ''} onChange={e => updateBlock(editingBlock.sectionId, activeEditingBlockProps!.id, { content: e.target.value })} className="w-full p-4 bg-gray-900 text-green-400 font-mono text-sm rounded-xl outline-none" placeholder="<p>Enter text...</p>" />
-                </div>
-              )}
-
-              {['select', 'checkbox', 'radio', 'hours_source', 'photo_method'].includes(activeEditingBlockProps.type) && (
-                <div>
-                  <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Options (One per line)</label>
-                  <textarea rows={6} value={(activeEditingBlockProps.options || []).join('\n')} onChange={e => updateBlock(editingBlock.sectionId, activeEditingBlockProps!.id, { options: e.target.value.split('\n') })} className="w-full p-3 bg-gray-50 border rounded-xl font-medium outline-none focus:ring-2 focus:ring-orange-500 whitespace-pre" />
-                </div>
-              )}
-
-              {['select', 'checkbox', 'radio', 'hours_source', 'photo_method'].includes(activeEditingBlockProps.type) && (
-                <div className="pt-6 border-t border-gray-200">
-                   <h4 className="text-xs font-black text-purple-600 uppercase tracking-widest mb-4">Conditional Logic</h4>
-                   <p className="text-xs text-gray-500 mb-4 font-medium">Attach follow-up questions when a user selects specific options below.</p>
-                   {activeEditingBlockProps.options?.map(opt => {
-                      const condition = activeEditingBlockProps!.conditions?.find(c => c.triggerValue === opt);
-                      return (
-                        <div key={opt} className="mb-4 bg-purple-50 p-4 rounded-xl border border-purple-100">
-                          <span className="font-bold text-sm text-purple-900 block mb-2">If user selects: "{opt}"</span>
-                          <div className="space-y-2">
-                            {condition?.blocks.map(child => (
-                               <div key={child.id} className="flex justify-between items-center bg-white border border-purple-200 p-2 rounded-lg text-xs font-bold text-gray-700 shadow-sm">
-                                 <span>↳ {child.label} <span className="text-[10px] text-gray-400 bg-gray-100 px-1 rounded ml-1">{child.type}</span></span>
-                                 <button onClick={() => setEditingBlock({sectionId: editingBlock.sectionId, blockId: child.id})} className="text-purple-600 hover:underline">Edit</button>
-                               </div>
-                            ))}
-                          </div>
-                          <div className="flex flex-wrap gap-2 mt-3">
-                            <button onClick={() => addBlockToCondition(editingBlock.sectionId, activeEditingBlockProps!.id, opt, 'operating_hours')} className="text-[10px] font-black uppercase tracking-wider bg-white border border-purple-200 text-purple-700 px-2 py-1.5 rounded hover:bg-purple-100">+ Add 7-Day Grid</button>
-                            <button onClick={() => addBlockToCondition(editingBlock.sectionId, activeEditingBlockProps!.id, opt, 'text')} className="text-[10px] font-black uppercase tracking-wider bg-white border border-purple-200 text-purple-700 px-2 py-1.5 rounded hover:bg-purple-100">+ Add Text Input</button>
-                          </div>
-                        </div>
-                      )
-                   })}
-                </div>
-              )}
-
-              <div className="pt-6 border-t border-gray-200">
-                <label className="block text-xs font-black text-blue-500 uppercase tracking-widest mb-2">Database Mapping (Data Key)</label>
-                <p className="text-[10px] font-bold text-red-500 bg-red-50 p-2 rounded mb-2 border border-red-100">
-                  WARNING: Changing an established key will orphan past data.
-                </p>
-                <input type="text" value={activeEditingBlockProps.dbColumn} onChange={e => updateBlock(editingBlock.sectionId, activeEditingBlockProps!.id, { dbColumn: e.target.value })} className="w-full p-3 bg-blue-50 border border-blue-200 text-blue-900 rounded-xl font-mono text-sm outline-none focus:ring-2 focus:ring-blue-500" placeholder="e.g., title, custom_fields.wifi" />
-              </div>
-            </div>
+            <BlockPropertiesEditor key={activeEditingBlockProps.id} block={activeEditingBlockProps} sectionId={editingBlock.sectionId} />
           )}
         </div>
       </div>

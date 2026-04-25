@@ -7,6 +7,9 @@ import RestaurantCard from '@/components/RestaurantCard';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { isOpenNow } from '@/lib/timeUtils'; 
 
+// SECURE: Strict columns to prevent private admin notes from leaking
+const PUBLIC_COLUMNS = 'id, title, description, restaurant_price, cuisine, food_restrictions, takeout_available, takeout_menu, total_seats, avg_stay_time, image_url, address, payment_methods, website_url, discount_info, title_en, description_en, takeout_menu_en, full_menu, full_menu_en, other_options, translations, category_collabs, lat, lng, operating_hours, hours_source, image_urls, discount_type, food_restrictions_description, takeout_how_to, image_formInput_url, custom_fields, status';
+
 const CAMPUSES = {
   waseda: { name: '早稲田', lat: 35.7089, lng: 139.7202 },
   toyama: { name: '戸山', lat: 35.7056, lng: 139.7153 },
@@ -14,14 +17,16 @@ const CAMPUSES = {
   tokorozawa: { name: '所沢', lat: 35.7876, lng: 139.4002 },
 };
 
-// Maps DB Types to specific columns. Defaults to the type name for dynamic custom categories.
 const getDbField = (type: string) => {
   switch (type) {
     case 'cuisine': return 'cuisine';
     case 'restriction': return 'food_restrictions';
     case 'payment': return 'payment_methods';
     case 'area': return 'restaurant_area';
-    default: return type;
+    case 'campus': return 'restaurant_area'; 
+    case 'discount_type': return 'discount_type';
+    case 'seats': return 'total_seats';
+    default: return 'other_options'; 
   }
 };
 
@@ -60,7 +65,6 @@ export default function Home() {
   const [query, setQuery] = useState('');
   const [price, setPrice] = useState(3000);
   
-  // Replaced multiple state arrays with a single dynamic dictionary
   const [selectedFilters, setSelectedFilters] = useState<Record<string, string[]>>({});
   const [otherOptions, setOtherOptions] = useState<string[]>([]);
   
@@ -76,6 +80,7 @@ export default function Home() {
   const [masterFilters, setMasterFilters] = useState<any[]>([]);
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   
+  const [formSchemaBlocks, setFormSchemaBlocks] = useState<any[]>([]);
   const [ads, setAds] = useState<any[]>([]); 
   const [selectedAdId, setSelectedAdId] = useState<string | null>(null);
   
@@ -180,13 +185,27 @@ export default function Home() {
           }),
           
         supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/'])
-          .then(res => { if (res.data && !isEditor) setAds(res.data); })
+          .then(res => { if (res.data && !isEditor) setAds(res.data); }),
+
+        supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle()
+          .then(res => {
+            if (res.data?.data?.sections) {
+              const allBlocks: any[] = [];
+              const extractBlocks = (blocks: any[]) => {
+                blocks.forEach(b => {
+                  allBlocks.push(b);
+                  if (b.conditions) b.conditions.forEach((c: any) => extractBlocks(c.blocks));
+                });
+              };
+              res.data.data.sections.forEach((s: any) => extractBlocks(s.blocks));
+              setFormSchemaBlocks(allBlocks);
+            }
+          })
       ]);
     };
     fetchFiltersEventsAndAds();
   }, [isEditor]);
 
-  // Convert filter state to a stable dependency string to avoid loop
   const selectedFiltersStr = JSON.stringify(selectedFilters);
 
   useEffect(() => {
@@ -212,7 +231,7 @@ export default function Home() {
       setIsSlowData(false);
       const slowTimer = setTimeout(() => setIsSlowData(true), 4000);
 
-      let dbQuery = supabase.from('restaurants').select('*', { count: 'exact' }).eq('status', 'approved');
+      let dbQuery = supabase.from('restaurants').select(PUBLIC_COLUMNS, { count: 'exact' }).eq('status', 'approved');
 
       if (query.trim()) {
         const tokens = query.replace(/　/g, ' ').split(/\s+/).filter(Boolean);
@@ -221,10 +240,11 @@ export default function Home() {
       
       if (price < 3000) dbQuery = dbQuery.lte('restaurant_price', price);
       
-      // Inject dynamically selected filters into the query based on type
       Object.entries(selectedFilters).forEach(([type, values]) => {
         if (values.length > 0) {
-          dbQuery = dbQuery.overlaps(getDbField(type), values);
+          if (!type.startsWith('custom_fields.')) {
+             dbQuery = dbQuery.overlaps(getDbField(type), values);
+          }
         }
       });
 
@@ -232,10 +252,12 @@ export default function Home() {
       if (takeoutOnly) dbQuery = dbQuery.eq('takeout_available', true);
       if (stayDuration) dbQuery = dbQuery.eq('avg_stay_time', stayDuration);
 
-      const requiresClientProcessing = userLocation || campusSort || seatCapacity || openNowOnly || maxWalkTime;
+      const customFilterEntries = Object.entries(selectedFilters).filter(([t]) => t.startsWith('custom_fields.') && selectedFilters[t].length > 0);
+      const requiresClientProcessing = userLocation || campusSort || seatCapacity || openNowOnly || maxWalkTime || customFilterEntries.length > 0;
 
       if (requiresClientProcessing) {
-        const { data, error } = await dbQuery.limit(1000);
+        // Distance math is handled locally if not using RPC yet
+        const { data, error } = await dbQuery;
         if (!error && data) {
           let processed = data.map(r => {
             let dist_meters = undefined;
@@ -255,10 +277,28 @@ export default function Home() {
             return { ...r, dist_meters, campus_dist_meters, campus_name };
           });
 
+          if (customFilterEntries.length > 0) {
+            processed = processed.filter(r => {
+              return customFilterEntries.every(([type, values]) => {
+                const key = type.replace('custom_fields.', '');
+                const restVal = r.custom_fields?.[key];
+                if (!restVal) return false;
+                
+                if (Array.isArray(restVal)) {
+                  return values.some(v => restVal.includes(v));
+                } else {
+                  return values.includes(restVal);
+                }
+              });
+            });
+          }
+
           if (seatCapacity) {
             processed = processed.filter(r => {
               const rawSeats = (r.total_seats || '').toString();
-              const seatNumber = parseInt(rawSeats.replace(/[^0-9]/g, ''), 10) || 0;
+              const seatNumber = parseInt(rawSeats.replace(/[^0-9]/g, ''), 10);
+              // Handle unparseable seats gracefully
+              if (isNaN(seatNumber) || seatNumber === 0) return false;
               if (seatCapacity === 'small' && (seatNumber < 1 || seatNumber > 10)) return false;
               if (seatCapacity === 'medium' && (seatNumber < 11 || seatNumber > 30)) return false;
               if (seatCapacity === 'large' && seatNumber < 31) return false;
@@ -393,11 +433,6 @@ export default function Home() {
                 src="/eato-okuma-trans.png" 
                 alt="Okuma Auditorium sketch" 
                 className="absolute left-full md:translate-x-[-110px] md:translate-y-[20px] translate-x-[-60px] translate-y-[8px] h-20 md:h-36 object-contain pointer-events-none"
-              />
-              <img 
-                src="/eato-statue-trans.png" 
-                alt="Okuma Auditorium sketch" 
-                className="absolute left-full md:translate-x-[-470px] md:translate-y-[20px] translate-x-[-310px] translate-y-[-13px] h-20 md:h-36 object-contain pointer-events-none"
               />
             </div>
           </div>
@@ -544,7 +579,6 @@ export default function Home() {
                   </label>
                 </div>
                 
-                {/* Dynamically Generate All Category Groups */}
                 {Array.from(new Set(masterFilters.map(f => f.type))).map((type) => {
                   const options = masterFilters.filter(f => f.type === type);
                   if (options.length === 0) return null;
@@ -573,6 +607,28 @@ export default function Home() {
                       </div>
                     </div>
                   );
+                })}
+
+                {formSchemaBlocks
+                  .filter(b => b.dbColumn.startsWith('custom_fields.') && b.isPublicCustomField !== false && ['checkbox', 'radio', 'select'].includes(b.type))
+                  .map(block => {
+                    const currentState = selectedFilters[block.dbColumn] || [];
+                    return (
+                        <div key={block.id} className="mb-8">
+                          <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{block.label}</label>
+                          <div className="flex flex-wrap gap-2">
+                            {block.options?.map((opt: string) => (
+                              <button
+                                key={opt}
+                                onClick={() => toggleDynamicFilter(block.dbColumn, opt)}
+                                className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${currentState.includes(opt) ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                              >
+                                {opt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                    );
                 })}
                 
                 {activeEvents.length > 0 && (
@@ -646,6 +702,7 @@ export default function Home() {
                             activeEvents={activeEvents} 
                             userLocation={userLocation} 
                             activeFilters={{ seatCapacity, campusSort }}
+                            formSchema={formSchemaBlocks}
                           />
                         </div>
                       </React.Fragment>
@@ -662,26 +719,6 @@ export default function Home() {
             </div>
           </main>
         </div>
-
-        {bottomAds.length > 0 && (
-          <div className="w-full max-w-3xl mx-auto px-4 mt-4">
-            {bottomAds.map(ad => (
-              <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" onClick={(e) => { if (isEditor) { e.preventDefault(); window.parent.postMessage({ type: 'AD_STUDIO_SELECT', id: ad.id }, '*'); } }} className={`lg:hidden block w-full bg-white rounded-[2rem] shadow-sm border overflow-hidden mb-6 group transition-all duration-300 ${selectedAdId === ad.id ? 'ring-4 ring-indigo-500 border-indigo-500 scale-[1.02]' : 'border-gray-200 hover:shadow-xl'}`}>
-                <div className="relative h-48 w-full overflow-hidden">
-                  <img src={ad.image_url} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt="Sponsored" />
-                  <div className="absolute top-4 left-4 bg-black/50 backdrop-blur-md text-white text-[9px] font-black px-3 py-1.5 rounded-full uppercase tracking-widest shadow-sm">{t('ad_sponsored_label', 'Sponsored')}</div>
-                </div>
-                <div className="p-5 flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="font-black text-lg text-gray-900">{t('ad_discover_title', 'Discover More')}</span>
-                    <span className="text-xs font-bold text-gray-400 mt-0.5">{t('ad_discover_desc', 'Tap to explore')}</span>
-                  </div>
-                  <div className="w-10 h-10 rounded-full bg-indigo-50 text-indigo-600 flex items-center justify-center font-bold text-lg group-hover:bg-indigo-600 group-hover:text-white transition-colors">→</div>
-                </div>
-              </a>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );

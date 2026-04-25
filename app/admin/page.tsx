@@ -11,6 +11,8 @@ import AdStudio from './AdStudio';
 import UserManagement from './UserManagement';
 import RegistrationEditor from './RegistrationEditor';
 
+const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
+
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [userProfile, setUserProfile] = useState<any>(null);
@@ -211,6 +213,85 @@ export default function AdminDashboard() {
     fetchAllData();
   };
 
+  const scrubGhostTags = async () => {
+    if (!confirm("Run the Ghost Tag Sweeper? This will scan all restaurants and permanently delete any tags that no longer exist in the Master Filters or Event Hub.")) return;
+
+    setBatchStatus({ total: 100, current: 0, isRunning: true });
+
+    try {
+      const { data: masterTags } = await supabase.from('filter_options').select('name');
+      const { data: customCats } = await supabase.from('custom_categories').select('name');
+      
+      const validTags = new Set([
+        ...(masterTags?.map(t => t.name) || []),
+        ...(customCats?.map(c => c.name) || [])
+      ]);
+
+      const { data: restaurants } = await supabase.from('restaurants').select('id, cuisine, food_restrictions, payment_methods, restaurant_area, other_options, custom_fields');
+      
+      if (!restaurants) throw new Error("Could not fetch restaurants.");
+
+      const columnsToScrub = ['cuisine', 'food_restrictions', 'payment_methods', 'restaurant_area', 'other_options'];
+      const updatePromises = [];
+      let updatedCount = 0;
+
+      for (const rest of restaurants) {
+        let needsUpdate = false;
+        const updates: any = {};
+
+        // 1. Scrub Top-Level Array Columns
+        for (const col of columnsToScrub) {
+          const currentArray = rest[col as keyof typeof rest] as string[] || [];
+          if (currentArray.length > 0) {
+            const cleanedArray = currentArray.filter((tag: string) => validTags.has(tag));
+            if (cleanedArray.length !== currentArray.length) {
+              needsUpdate = true;
+              updates[col] = cleanedArray;
+            }
+          }
+        }
+
+        // 2. Scrub JSONB Custom Fields
+        if (rest.custom_fields) {
+            let customFieldsChanged = false;
+            const newCustomFields = { ...rest.custom_fields as Record<string, any> };
+            
+            for (const key in newCustomFields) {
+              if (Array.isArray(newCustomFields[key])) {
+                const cleanedArray = newCustomFields[key].filter((tag: string) => validTags.has(tag));
+                if (cleanedArray.length !== newCustomFields[key].length) {
+                  newCustomFields[key] = cleanedArray;
+                  customFieldsChanged = true;
+                }
+              }
+            }
+            if (customFieldsChanged) {
+                needsUpdate = true;
+                updates.custom_fields = newCustomFields;
+            }
+        }
+
+        if (needsUpdate) {
+          updatePromises.push(supabase.from('restaurants').update(updates).eq('id', rest.id));
+          updatedCount++;
+        }
+      }
+
+      if (updatePromises.length > 0) {
+        await Promise.all(updatePromises);
+        alert(`Cleanup complete! 🧹 Scrubbed dead tags from ${updatedCount} restaurants.`);
+        fetchAllData(); 
+      } else {
+        alert("Database is completely clean! No ghost tags were found. ✨");
+      }
+
+    } catch (error: any) {
+      alert(`Scrub failed: ${error.message}`);
+    } finally {
+      setBatchStatus(null);
+    }
+  };
+
   const updateBaseTagName = async (id: string, oldName: string, newName: string, type: string) => {
     const safeNewName = newName.trim();
     if (!safeNewName || safeNewName === oldName) return;
@@ -360,18 +441,16 @@ export default function AdminDashboard() {
   };
 
   const handleEditClick = (restaurant: any) => {
-    let formattedHours = restaurant.operating_hours;
-    if (formattedHours) {
-      if (typeof formattedHours === 'string') {
-        try {
-          const parsed = JSON.parse(formattedHours);
-          formattedHours = Object.entries(parsed).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
-        } catch { /* Already text */ }
-      } else if (typeof formattedHours === 'object') {
-        formattedHours = Object.entries(formattedHours).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
+    let parsedHours = {};
+    if (restaurant.operating_hours) {
+      if (typeof restaurant.operating_hours === 'string') {
+        try { parsedHours = JSON.parse(restaurant.operating_hours); } 
+        catch { /* Ignore */ }
+      } else if (typeof restaurant.operating_hours === 'object') {
+        parsedHours = restaurant.operating_hours;
       }
     }
-    setEditingData({ ...restaurant, operating_hours: formattedHours });
+    setEditingData({ ...restaurant, operating_hours: parsedHours });
   };
 
   const saveEdits = async (currentData: any) => {
@@ -380,12 +459,20 @@ export default function AdminDashboard() {
       return;
     }
     setLoading(true);
-    const { id, created_at, ...updates } = currentData;
+    
+    // STRIP invalid columns derived from client state before pushing to DB
+    const { id, created_at, count, dist_meters, campus_name, campus_dist_meters, ...updates } = currentData;
+    
     const allRests = [...liveRestaurants, ...pendingSubmissions];
     const original = allRests.find(r => r.id === id);
     if (original && original.address !== updates.address && updates.address) {
       const { lat, lng } = await geocodeAddress(updates.address);
       if (lat && lng) { updates.lat = lat; updates.lng = lng; }
+    }
+    
+    // Ensure operating hours are safely stringified back to text if they are an object
+    if (typeof updates.operating_hours === 'object') {
+        updates.operating_hours = JSON.stringify(updates.operating_hours);
     }
     
     const { error } = await supabase.from('restaurants').update(updates).eq('id', id);
@@ -396,9 +483,7 @@ export default function AdminDashboard() {
 
   const hasAccess = (tabId: string) => {
     if (!userProfile) return false;
-    
     if (userProfile.isRootAdmin) return true;
-    
     if (userProfile.role === 'admin' && (!userProfile.allowed_tabs || userProfile.allowed_tabs.length === 0)) return true;
     return userProfile.allowed_tabs?.includes(tabId);
   };
@@ -449,8 +534,6 @@ export default function AdminDashboard() {
   }
 
   const allRestaurantsList = [...liveRestaurants, ...pendingSubmissions];
-
-  // Helper to extract the unique dynamic types for master filters
   const dynamicFilterTypes = Array.from(new Set(masterFilters.map(f => f.type)));
 
   return (
@@ -465,17 +548,26 @@ export default function AdminDashboard() {
             </div>
           )}
           {hasAccess('directory') && (
-            <button 
-              onClick={batchUpdateCoordinates} 
-              disabled={batchStatus?.isRunning}
-              className="mt-4 text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50 flex items-center"
-            >
-              {batchStatus?.isRunning ? (
-                <><Icons.Sync className="w-3.5 h-3.5 animate-spin mr-1.5" /> Syncing... ({batchStatus.current}/{batchStatus.total})</>
-              ) : (
-                <><Icons.MapPin className="w-3.5 h-3.5 mr-1.5" /> Missing Coordinates Sync</>
-              )}
-            </button>
+            <div className="flex flex-wrap gap-2 mt-4">
+              <button 
+                onClick={batchUpdateCoordinates} 
+                disabled={batchStatus?.isRunning}
+                className="text-xs font-black bg-gray-100 text-gray-500 px-4 py-2 rounded-full hover:bg-orange-100 hover:text-orange-600 transition disabled:opacity-50 flex items-center"
+              >
+                {batchStatus?.isRunning ? (
+                  <><Icons.Sync className="w-3.5 h-3.5 animate-spin mr-1.5" /> Syncing... ({batchStatus.current}/{batchStatus.total})</>
+                ) : (
+                  <><Icons.MapPin className="w-3.5 h-3.5 mr-1.5" /> Missing Coordinates Sync</>
+                )}
+              </button>
+              <button 
+                onClick={scrubGhostTags} 
+                disabled={batchStatus?.isRunning}
+                className="text-xs font-black bg-red-50 text-red-500 px-4 py-2 rounded-full hover:bg-red-100 hover:text-red-600 transition disabled:opacity-50 flex items-center"
+              >
+                <Icons.Close className="w-3.5 h-3.5 mr-1.5" /> Scrub Ghost Tags
+              </button>
+            </div>
           )}
         </div>
         <button onClick={handleLogout} className="text-sm font-bold text-gray-400 hover:text-red-500 transition">Logout</button>
@@ -645,7 +737,6 @@ export default function AdminDashboard() {
                   {dynamicFilterTypes.map(type => {
                     const dbField = getDbField(type as string);
                     
-                    // Helper to make headers look nice (e.g., "cuisine" -> "CUISINES")
                     const formatHeader = (text: string) => {
                       if (!text) return '';
                       const formatted = text.replace(/_/g, ' ').toUpperCase();
@@ -709,11 +800,6 @@ export default function AdminDashboard() {
                         <input type="text" value={editingData.avg_stay_time || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, avg_stay_time: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="平均滞接時間 (e.g. 1時間)" />
                       </div>
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <input type="text" value={editingData.campus_name || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, campus_name: e.target.value}))} className="w-full p-4 border border-indigo-100 bg-indigo-50/30 rounded-2xl font-bold text-indigo-900 shadow-sm text-sm" placeholder="Campus Name (e.g. waseda)" />
-                        <input type="number" value={editingData.campus_dist_meters || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, campus_dist_meters: parseInt(e.target.value)}))} className="w-full p-4 border border-indigo-100 bg-indigo-50/30 rounded-2xl font-bold text-indigo-900 shadow-sm text-sm" placeholder="Campus Distance (Meters)" />
-                      </div>
-
                       <div className="flex gap-2">
                         <input type="text" disabled value={`Lat: ${editingData.lat || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
                         <input type="text" disabled value={`Lng: ${editingData.lng || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
@@ -736,12 +822,28 @@ export default function AdminDashboard() {
                  </div>
                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Operating Hours</label>
-                      <textarea rows={4} value={editingData.operating_hours || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm font-medium" placeholder="Mon-Fri: 11:00-22:00" />
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Operating Hours (7-Day Grid)</label>
+                      <div className="grid grid-cols-1 gap-2 border border-gray-200 p-4 rounded-[24px] bg-white">
+                        {DAYS.map(day => {
+                          const parsed = typeof editingData.operating_hours === 'object' && editingData.operating_hours !== null ? editingData.operating_hours : {};
+                          return (
+                            <div key={day} className="flex items-center gap-3">
+                               <span className="w-16 text-xs font-bold text-gray-600 text-right">{day}</span>
+                               <input 
+                                  type="text" 
+                                  value={parsed[day] || ''} 
+                                  onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: {...(typeof prev.operating_hours === 'object' && prev.operating_hours !== null ? prev.operating_hours : {}), [day]: e.target.value}}))} 
+                                  className="flex-1 p-2 bg-gray-50 border border-gray-100 rounded-xl text-sm outline-none focus:border-orange-300" 
+                                  placeholder="11:00 - 22:00" 
+                               />
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                     <div>
                       <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Takeout Menu Details</label>
-                      <textarea rows={4} value={editingData.takeout_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, takeout_menu: e.target.value}))} className="w-full p-6 border rounded-[32px] text-sm bg-orange-50/20 font-medium shadow-inner" placeholder="テイクアウトメニュー (Takeout menu info)" />
+                      <textarea rows={4} value={editingData.takeout_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, takeout_menu: e.target.value}))} className="w-full h-full min-h-[150px] p-6 border rounded-[32px] text-sm bg-orange-50/20 font-medium shadow-inner" placeholder="テイクアウトメニュー (Takeout menu info)" />
                     </div>
                  </div>
                  <div>
@@ -763,7 +865,7 @@ export default function AdminDashboard() {
                   'image_urls', 'contact_name', 'contact_phone', 'contact_email', 'photo_method',
                   'admin_notes', 'other_options', 'category_collabs', 'dist_meters', 
                   'translations', 'campus_name', 'campus_dist_meters',
-                  ...dynamicDbFields // Include all dynamically generated fields so they don't double render here
+                  ...dynamicDbFields 
                 ];
 
                 const dynamicKeys = Object.keys(editingData).filter(key => !knownKeys.includes(key));
