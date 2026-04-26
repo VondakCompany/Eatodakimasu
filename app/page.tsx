@@ -240,15 +240,17 @@ export default function Home() {
       
       if (price < 3000) dbQuery = dbQuery.lte('restaurant_price', price);
       
+      // FIXED: Switched from .overlaps() to .contains() for Postgres Array columns
       Object.entries(selectedFilters).forEach(([type, values]) => {
         if (values.length > 0) {
           if (!type.startsWith('custom_fields.')) {
-             dbQuery = dbQuery.overlaps(getDbField(type), values);
+             dbQuery = dbQuery.contains(getDbField(type), values);
           }
         }
       });
 
-      if (otherOptions.length > 0) dbQuery = dbQuery.overlaps('other_options', otherOptions);
+      // FIXED: Switched from .overlaps() to .contains() 
+      if (otherOptions.length > 0) dbQuery = dbQuery.contains('other_options', otherOptions);
       if (takeoutOnly) dbQuery = dbQuery.eq('takeout_available', true);
       if (stayDuration) dbQuery = dbQuery.eq('avg_stay_time', stayDuration);
 
@@ -256,7 +258,6 @@ export default function Home() {
       const requiresClientProcessing = userLocation || campusSort || seatCapacity || openNowOnly || maxWalkTime || customFilterEntries.length > 0;
 
       if (requiresClientProcessing) {
-        // Distance math is handled locally if not using RPC yet
         const { data, error } = await dbQuery;
         if (!error && data) {
           let processed = data.map(r => {
@@ -297,7 +298,6 @@ export default function Home() {
             processed = processed.filter(r => {
               const rawSeats = (r.total_seats || '').toString();
               const seatNumber = parseInt(rawSeats.replace(/[^0-9]/g, ''), 10);
-              // Handle unparseable seats gracefully
               if (isNaN(seatNumber) || seatNumber === 0) return false;
               if (seatCapacity === 'small' && (seatNumber < 1 || seatNumber > 10)) return false;
               if (seatCapacity === 'medium' && (seatNumber < 11 || seatNumber > 30)) return false;

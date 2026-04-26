@@ -1,3 +1,4 @@
+// RegistrationEditor.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
@@ -23,6 +24,7 @@ interface FormBlock {
   validation?: 'none' | 'email' | 'url' | 'number' | 'phone';
   conditions?: FormCondition[];
   isPublicCustomField?: boolean;
+  maxImages?: number;
 }
 
 interface FormSection {
@@ -51,7 +53,15 @@ const BASELINE_SCHEMA: FormSchema = {
   sections: [
     {
       id: "sec_1",
-      title: "1. 店舗の基本情報",
+      title: "1. 写真",
+      description: "",
+      blocks: [
+        { id: "b_image", type: "image_upload", label: "店舗やメニューの写真をアップロードしてください", dbColumn: "image_url", required: true, placeholder: "複数枚ある場合は、代表的な1枚をお願いします" }
+      ]
+    },
+    {
+      id: "sec_2",
+      title: "2. 店舗の基本情報",
       description: "",
       blocks: [
         { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
@@ -62,8 +72,8 @@ const BASELINE_SCHEMA: FormSchema = {
       ]
     },
     {
-      id: "sec_2",
-      title: "2. 営業時間",
+      id: "sec_3",
+      title: "3. 営業時間",
       description: "",
       blocks: [
         { 
@@ -85,8 +95,8 @@ const BASELINE_SCHEMA: FormSchema = {
       ]
     },
     {
-      id: "sec_3",
-      title: "3. お食事とサービス",
+      id: "sec_4",
+      title: "4. お食事とサービス",
       description: "",
       blocks: [
         { id: "b_cuisine", type: "checkbox", label: "代表的な料理ジャンル (複数可)", dbColumn: "cuisine", required: false, options: ['和食', '洋食', '中華', '韓国料理', 'インド料理', '東南アジア', 'ファストフード', 'カフェ・スイーツ', '寿司', '丼もの'] },
@@ -96,8 +106,8 @@ const BASELINE_SCHEMA: FormSchema = {
       ]
     },
     {
-      id: "sec_4",
-      title: "4. 設備・テイクアウト",
+      id: "sec_5",
+      title: "5. 設備・テイクアウト",
       description: "",
       blocks: [
         { id: "b_seats", type: "text", label: "総席数", dbColumn: "total_seats", required: false, placeholder: "例：30席" },
@@ -105,23 +115,13 @@ const BASELINE_SCHEMA: FormSchema = {
         { id: "b_takeout", type: "radio", label: "テイクアウト（お持ち帰り）を行っている", dbColumn: "custom_fields.takeout_available_text", required: false, options: ["はい", "いいえ"] },
         { id: "b_tmenu", type: "text", label: "テイクアウト可能なメニュー", dbColumn: "takeout_menu", required: false, placeholder: "例：お弁当各種、カレー" },
         { id: "b_tmethod", type: "checkbox", label: "注文方法 (複数可)", dbColumn: "payment_methods", required: false, options: ['店頭注文', '電話注文', 'オンライン(Uber等)'] },
-        { id: "b_atom", type: "radio", label: "地域通貨「アトム通貨」は使えますか？", dbColumn: "custom_fields.atom_currency_text", required: false, options: ["はい", "いいえ"] }
-      ]
-    },
-    {
-      id: "sec_5",
-      title: "5. 写真のご提供方法",
-      description: "",
-      blocks: [
-        { id: "b_pmethod", type: "photo_method", label: "店舗やメニューの写真のご提供方法をお選びください", dbColumn: "photo_method", required: true, options: ["後でメールで送る", "店舗HPの写真を使用する", "スタッフに撮影を依頼する"] },
-        { id: "b_notes", type: "textarea", label: "その他ご質問・ご要望", dbColumn: "admin_notes", required: false, placeholder: "ご不明点があればご自由にご記入ください。" },
-        { id: "b_image", type: "image_upload", label: "写真をアップロード・撮る", dbColumn: "image_url", required: false, placeholder: "複数枚ある場合は、代表的な1枚をお願いします" }
+        { id: "b_atom", type: "radio", label: "地域通貨「アトム通貨」は使えますか？", dbColumn: "custom_fields.atom_currency_text", required: false, options: ["はい", "いいえ"] },
+        { id: "b_notes", type: "textarea", label: "その他ご質問・ご要望", dbColumn: "admin_notes", required: false, placeholder: "ご不明点があればご自由にご記入ください。" }
       ]
     }
   ]
 };
 
-// --- ADMIN COMPONENT: Interactive Image Picker Editor ---
 const ImagePickerBlock: React.FC<{ block: FormBlock; isEditing: boolean; onClick: () => void }> = ({ block, isEditing, onClick }) => {
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -189,34 +189,56 @@ const ImagePickerBlock: React.FC<{ block: FormBlock; isEditing: boolean; onClick
     </div>
   );
 };
-// ----------------------------------------------
 
-// --- NEW PUBLIC COMPONENT: Interactive Image Uploader ---
-const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (file: File | null) => void, currentValue: File | null }) => {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (files: File | File[] | null) => void, currentValue: any }) => {
+  const [previews, setPreviews] = useState<{file: File, url: string}[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const maxLimit = block.maxImages || 1;
+  const isMultiple = maxLimit > 1;
 
   useEffect(() => {
     if (!currentValue) {
-      setPreviewUrl(null);
+      setPreviews([]);
     } else if (currentValue instanceof File) {
-      setPreviewUrl(URL.createObjectURL(currentValue));
+      setPreviews([{ file: currentValue, url: URL.createObjectURL(currentValue) }]);
+    } else if (Array.isArray(currentValue)) {
+      setPreviews(currentValue.map(f => ({ file: f, url: URL.createObjectURL(f) })));
     }
   }, [currentValue]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
-      onImageSelected(file);
-    }
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const validImages = files.filter(f => f.type.startsWith('image/'));
+    
+    setPreviews(prev => {
+      const combined = [...prev];
+      for (const file of validImages) {
+        if (combined.length < maxLimit) {
+          combined.push({ file, url: URL.createObjectURL(file) });
+        }
+      }
+      
+      const filePayload = isMultiple ? combined.map(p => p.file) : combined[0].file;
+      onImageSelected(filePayload);
+      
+      return combined;
+    });
+    
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const clearSelection = () => {
-    setPreviewUrl(null);
-    onImageSelected(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  const removeImage = (index: number) => {
+    setPreviews(prev => {
+      const updated = [...prev];
+      updated.splice(index, 1);
+      
+      const filePayload = updated.length === 0 ? null : (isMultiple ? updated.map(p => p.file) : updated[0].file);
+      onImageSelected(filePayload);
+      return updated;
+    });
   };
 
   return (
@@ -224,56 +246,50 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
       <input
         type="file"
         accept="image/*"
+        multiple={isMultiple}
         onChange={handleFileChange}
         ref={fileInputRef}
         className="hidden"
       />
       
-      {previewUrl ? (
-        <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
-          <img 
-            src={previewUrl} 
-            alt="Upload preview" 
-            className="w-full sm:w-48 h-auto object-contain rounded-xl border border-gray-300 shadow-sm bg-white" 
-          />
-          <div className="flex flex-col gap-2 w-full sm:w-auto">
-            <button 
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="text-sm font-bold bg-white border border-gray-300 text-gray-700 px-5 py-2.5 rounded-xl hover:bg-gray-100 transition shadow-sm whitespace-nowrap"
-            >
-              写真を変更する (Change Photo)
-            </button>
-            <button 
-              type="button"
-              onClick={clearSelection}
-              className="text-sm font-bold text-red-600 hover:bg-red-50 px-5 py-2.5 rounded-xl transition whitespace-nowrap"
-            >
-              削除 (Remove)
-            </button>
+      {previews.length > 0 ? (
+        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
+          <div className="flex justify-between items-end mb-4">
+            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} uploaded</span>
+            {previews.length < maxLimit && (
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
+                + Add More
+              </button>
+            )}
+          </div>
+          
+          <div className={`grid gap-4 ${isMultiple ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:w-48'}`}>
+            {previews.map((preview, idx) => (
+              <div key={idx} className="relative group aspect-square">
+                <img src={preview.url} alt={`Upload ${idx + 1}`} className="w-full h-full object-cover rounded-xl border border-gray-300 shadow-sm bg-white" />
+                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform">
+                  ✕
+                </button>
+              </div>
+            ))}
           </div>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full py-12 px-4 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50 hover:bg-white hover:border-orange-400 hover:shadow-md transition-all group text-gray-500"
-        >
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-12 px-4 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50 hover:bg-white hover:border-orange-400 hover:shadow-md transition-all group text-gray-500">
           <div className="bg-white p-3 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
             <svg className="w-8 h-8 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           </div>
-          <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">ここをタップしてアップロードまたは撮影</span>
+          <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
+            Tap to Upload {isMultiple ? `(Up to ${maxLimit} photos)` : 'Photo'}
+          </span>
           {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
         </button>
       )}
     </div>
   );
 };
-// ----------------------------------------------
-
 
 export function RegistrationEditor() {
   const [schema, setSchema] = useState<FormSchema | null>(null);
@@ -281,7 +297,6 @@ export function RegistrationEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   
-  // Database-driven base columns state
   const [baseColumns, setBaseColumns] = useState<{id: string, label: string, dataType: string}[]>([]);
   const [dynamicColumns, setDynamicColumns] = useState<{id: string, label: string, category: string, dataType: string}[]>([]);
 
@@ -289,6 +304,13 @@ export function RegistrationEditor() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [viewport, setViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop'); 
+
+  // Field Manager State
+  const [showFieldManager, setShowFieldManager] = useState(false);
+  const [newFieldId, setNewFieldId] = useState('');
+  const [newFieldLabel, setNewFieldLabel] = useState('');
+  const [newFieldType, setNewFieldType] = useState('string');
+  const [isSavingField, setIsSavingField] = useState(false);
 
   const [pendingDelete, setPendingDelete] = useState<{
     type: 'section' | 'block';
@@ -346,6 +368,34 @@ export function RegistrationEditor() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleAddField = async () => {
+    const cleanId = newFieldId.trim().toLowerCase().replace(/[^a-z0-9_]/g, '');
+    if (!cleanId || !newFieldLabel) return alert("ID and Label are required.");
+    
+    setIsSavingField(true);
+    const { error } = await supabase.from('form_base_columns').upsert({
+      id: cleanId,
+      label: newFieldLabel,
+      data_type: newFieldType
+    });
+
+    setIsSavingField(false);
+    if (error) {
+      alert(`Error saving field: ${error.message}`);
+    } else {
+      setNewFieldId('');
+      setNewFieldLabel('');
+      fetchConfig(); 
+    }
+  };
+
+  const handleDeleteField = async (id: string) => {
+    if (!confirm(`Delete mapping for "${id}"? (This doesn't delete data, just removes it from the builder)`)) return;
+    const { error } = await supabase.from('form_base_columns').delete().eq('id', id);
+    if (error) alert(`Error deleting: ${error.message}`);
+    else fetchConfig();
   };
 
   const saveConfig = async () => {
@@ -486,7 +536,7 @@ export function RegistrationEditor() {
 
   const createNewBlock = (type: BlockType): FormBlock => ({
     id: generateId(), type, label: `New ${type}`, required: false, dbColumn: type === 'image_upload' ? 'image_url' : `custom_fields.${generateId()}`,
-    options: ['Option 1', 'Option 2'], content: '<p>Edit your text here.</p>', isPublicCustomField: true
+    options: ['Option 1', 'Option 2'], content: '<p>Edit your text here.</p>', isPublicCustomField: true, maxImages: type === 'image_upload' ? 1 : undefined
   });
 
   const addBlockToSection = (sectionId: string, type: BlockType) => {
@@ -820,19 +870,23 @@ export function RegistrationEditor() {
                 const name = prompt('Enter a unique ID for your new custom field (e.g. wifi_info, budget_lunch):');
                 if (name) {
                   const formattedName = `custom_fields.${name.trim().toLowerCase().replace(/[^a-z0-9_]/g, '_')}`;
-                  setLocal({...local, dbColumn: formattedName});
-                  updateBlock(sectionId, block.id, { dbColumn: formattedName });
+                  setLocal({...local, dbColumn: formattedName, maxImages: 1});
+                  updateBlock(sectionId, block.id, { dbColumn: formattedName, maxImages: 1 });
                 }
               } else {
-                setLocal({...local, dbColumn: val});
-                updateBlock(sectionId, block.id, { dbColumn: val });
+                const selectedCol = [...baseColumns, ...dynamicColumns].find(c => c.id === val);
+                const isArray = selectedCol?.dataType === 'array';
+                const newMax = isArray ? 5 : 1;
+                
+                setLocal({...local, dbColumn: val, maxImages: newMax});
+                updateBlock(sectionId, block.id, { dbColumn: val, maxImages: newMax });
               }
             }}
             className="w-full p-3 bg-white border border-blue-200 text-gray-900 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
           >
             <optgroup label="Standard Columns">
               {baseColumns.map(col => {
-                const isTypeMatch = col.dataType === blockExpectedType;
+                const isTypeMatch = col.dataType === blockExpectedType || (block.type === 'image_upload');
                 const isUsed = usedColumns.includes(col.id) && col.id !== local.dbColumn;
                 const disabled = isUsed || !isTypeMatch;
                 const labelSuffix = isUsed ? '(In Use)' : (!isTypeMatch ? '(Type Mismatch)' : '');
@@ -865,6 +919,28 @@ export function RegistrationEditor() {
                <option value="NEW_CUSTOM">+ Create New Custom Field...</option>
             </optgroup>
           </select>
+
+          {block.type === 'image_upload' && local.maxImages !== undefined && local.maxImages > 1 && (
+            <div className="mt-4 p-4 bg-white border border-blue-100 rounded-xl shadow-sm animate-in fade-in">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-[10px] font-black text-blue-600 uppercase tracking-widest">Gallery Limit</span>
+                <span className="text-[10px] font-bold text-gray-400 bg-gray-100 px-2 py-0.5 rounded">Auto-detected Array</span>
+              </div>
+              <p className="text-xs text-gray-500 mb-3 font-medium">How many images can the user upload here?</p>
+              <input 
+                type="number" 
+                min="2" 
+                max="20"
+                value={local.maxImages} 
+                onChange={e => {
+                  const max = parseInt(e.target.value) || 2;
+                  setLocal({...local, maxImages: max});
+                  updateBlock(sectionId, block.id, { maxImages: max });
+                }} 
+                className="w-full p-3 border border-gray-200 rounded-xl font-bold outline-none focus:ring-2 focus:ring-blue-500" 
+              />
+            </div>
+          )}
 
           {isCustomField && (
             <div className="mt-4 p-4 bg-white border border-blue-100 rounded-xl shadow-sm">
@@ -914,6 +990,10 @@ export function RegistrationEditor() {
             </div>
 
             <div className="h-6 w-px bg-gray-300"></div>
+            
+            <button onClick={() => setShowFieldManager(true)} className="bg-blue-50 text-blue-600 border border-blue-200 px-4 py-2 rounded-full font-bold text-sm hover:bg-blue-100 transition flex items-center gap-2">
+              ⚙️ Manage DB Fields
+            </button>
             <button onClick={() => setShowHistoryModal(true)} className="bg-amber-50 text-amber-600 border border-amber-200 px-4 py-2 rounded-full font-bold text-sm hover:bg-amber-100 transition">History</button>
             <button onClick={() => setIsSidebarOpen(!isSidebarOpen)} className={`px-4 py-2 rounded-full font-bold text-sm transition ${isSidebarOpen ? 'bg-gray-200 text-gray-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>Properties</button>
             <button onClick={saveConfig} disabled={saving} className="bg-orange-600 text-white px-6 py-2 rounded-full font-black text-sm hover:bg-orange-700 shadow-md transition disabled:opacity-50">{saving ? 'Saving...' : 'Publish'}</button>
@@ -1025,6 +1105,59 @@ export function RegistrationEditor() {
           </div>
         </div>
       )}
+
+      {showFieldManager && (
+        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+          <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
+            <div className="bg-blue-600 p-6 flex justify-between items-center text-white">
+              <div>
+                <h2 className="text-xl font-black">Database Field Manager</h2>
+                <p className="text-blue-200 text-xs font-bold mt-1">Manage the columns available in the Form Builder dropdown.</p>
+              </div>
+              <button onClick={() => setShowFieldManager(false)} className="text-2xl font-black hover:text-blue-200 transition">✕</button>
+            </div>
+            
+            <div className="p-6 bg-blue-50/50 border-b border-gray-200">
+              <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-3">Add New Database Mapping</h3>
+              <div className="flex flex-col sm:flex-row gap-3">
+                <input type="text" value={newFieldId} onChange={e => setNewFieldId(e.target.value)} placeholder="db_column_name" className="flex-1 p-3 border border-gray-200 rounded-xl text-sm font-bold outline-none focus:border-blue-400 font-mono" />
+                <input type="text" value={newFieldLabel} onChange={e => setNewFieldLabel(e.target.value)} placeholder="Display Label (e.g. TikTok Link)" className="flex-1 p-3 border border-gray-200 rounded-xl text-sm font-bold outline-none focus:border-blue-400" />
+                <select value={newFieldType} onChange={e => setNewFieldType(e.target.value)} className="p-3 border border-gray-200 rounded-xl text-sm font-bold outline-none bg-white">
+                  <option value="string">Text/String</option>
+                  <option value="number">Number</option>
+                  <option value="array">Multiple (Array)</option>
+                  <option value="boolean">Checkbox (True/False)</option>
+                </select>
+                <button onClick={handleAddField} disabled={isSavingField} className="bg-blue-600 text-white font-black px-6 py-3 rounded-xl hover:bg-blue-700 transition disabled:opacity-50">
+                  {isSavingField ? '...' : 'Add'}
+                </button>
+              </div>
+            </div>
+
+            <div className="p-6 overflow-y-auto flex-1 bg-gray-50">
+              <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-4">Currently Mapped Fields ({baseColumns.length})</h3>
+              <div className="space-y-3">
+                {baseColumns.length === 0 && <p className="text-center text-gray-400 font-bold py-8">No standard columns mapped yet.</p>}
+                
+                {baseColumns.map(col => (
+                  <div key={col.id} className="flex justify-between items-center bg-white p-4 rounded-2xl border border-gray-200 shadow-sm">
+                    <div>
+                      <div className="font-bold text-gray-900">{col.label}</div>
+                      <div className="flex items-center gap-2 mt-1">
+                        <span className="text-[10px] font-mono bg-gray-100 text-gray-500 px-2 py-0.5 rounded border border-gray-200">{col.id}</span>
+                        <span className="text-[10px] font-black uppercase text-blue-500 tracking-widest">{col.dataType}</span>
+                      </div>
+                    </div>
+                    <button onClick={() => handleDeleteField(col.id)} className="text-xs font-bold text-red-500 hover:bg-red-50 px-3 py-2 rounded-lg transition">
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1100,58 +1233,62 @@ export function RegisterRestaurant() {
 
     const payload: any = { status: 'pending', custom_fields: {}, other_options: selectedEvents };
     
-    // Critical Upload Logic fix here
     for (const key of Object.keys(formData)) {
       if (key.startsWith('hours_') && key !== 'hours_source') continue;
       
-      // Upload files to Supabase Storage and use public URL
-      if (formData[key] instanceof File) {
-        const file = formData[key];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `public-upload-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-        
-        try {
-          const { error: uploadError } = await supabase.storage
-            .from('restaurant-images')
-            .upload(fileName, file);
+      const value = formData[key];
+      
+      if (value instanceof File || (Array.isArray(value) && value[0] instanceof File)) {
+        const files = Array.isArray(value) ? value : [value];
+        const uploadedUrls: string[] = [];
+
+        for (const file of files) {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `public-upload-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+          
+          try {
+            const { error: uploadError } = await supabase.storage.from('restaurant-images').upload(fileName, file);
+            if (uploadError) throw uploadError;
             
-          if (uploadError) throw uploadError;
-          
-          const { data: publicData } = supabase.storage
-            .from('restaurant-images')
-            .getPublicUrl(fileName);
-          
-          if (key.startsWith('custom_fields.')) {
-            payload.custom_fields[key.replace('custom_fields.', '')] = publicData.publicUrl;
-          } else {
-            payload[key] = publicData.publicUrl;
+            const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
+            uploadedUrls.push(publicData.publicUrl);
+          } catch (uploadErr: any) {
+            setMessage(`Image upload failed: ${uploadErr.message}`);
+            setLoading(false);
+            return;
           }
-        } catch (uploadErr: any) {
-          console.error("Image upload failed:", uploadErr);
-          setMessage(`Image upload failed: ${uploadErr.message}`);
-          setLoading(false);
-          return;
+        }
+        
+        const finalUrlData = key === 'image_urls' ? uploadedUrls : uploadedUrls[0];
+
+        if (key.startsWith('custom_fields.')) {
+          payload.custom_fields[key.replace('custom_fields.', '')] = finalUrlData;
+        } else {
+          payload[key] = finalUrlData;
         }
         continue;
       }
 
       if (key.startsWith('custom_fields.')) {
-        payload.custom_fields[key.replace('custom_fields.', '')] = formData[key];
+        payload.custom_fields[key.replace('custom_fields.', '')] = value;
       } else {
-        payload[key] = formData[key];
+        payload[key] = value;
       }
     }
 
-    let finalHours = '';
+    let finalHours: any = '';
     const hSource = formData['hours_source'];
+    
     if (hSource === 'ここで手動で入力する') {
-      finalHours = DAYS.map(day => {
-        const val = formData[`hours_${day}`];
-        return val ? `${day}: ${val}` : `${day}: 定休/未設定`;
-      }).join('\n');
+      const hoursObj: Record<string, string> = {};
+      DAYS.forEach(day => {
+        hoursObj[day] = formData[`hours_${day}`] || '';
+      });
+      finalHours = JSON.stringify(hoursObj);
     } else {
       finalHours = hSource || '';
     }
+    
     payload.operating_hours = finalHours;
 
     const { error } = await supabase.from('restaurants').insert([payload]);
