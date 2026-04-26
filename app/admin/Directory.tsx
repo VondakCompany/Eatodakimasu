@@ -1,4 +1,4 @@
-// Directory.tsx
+// /app/admin/Directory.tsx
 'use client';
 import { useState } from 'react';
 import { RestaurantCard, Icons } from './shared';

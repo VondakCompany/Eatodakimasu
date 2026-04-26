@@ -133,8 +133,9 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const takeoutData = restaurant.takeout_menu || restaurant.custom_fields?.takeout_available_text;
   const displayTakeout = currentLang === 'ja' ? takeoutData : (restaurant.translations?.[currentLang]?.takeout_menu || takeoutData);
 
+  // FIX: Proper map link generation query parameters
   const mapEmbedUrl = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}&t=&z=16&ie=UTF8&iwloc=&output=embed` : null;
-  const mapOutboundLink = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}` : null;
+  const mapOutboundLink = restaurant.address ? `https://maps.google.com/?q=${encodeURIComponent(restaurant.address)}` : null;
 
   const handleShare = async () => {
     const shareData = { title: displayTitle, text: displayDescription?.substring(0, 50) + '...', url: window.location.href };

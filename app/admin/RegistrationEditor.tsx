@@ -1,4 +1,4 @@
-// RegistrationEditor.tsx
+// /app/admin/RegistrationEditor.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';

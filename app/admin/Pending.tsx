@@ -1,4 +1,4 @@
-// Pending.tsx
+// /app/admin/Pending.tsx
 'use client';
 import { useState } from 'react';
 import { RestaurantCard, Icons } from './shared';

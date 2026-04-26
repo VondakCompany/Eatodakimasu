@@ -1,3 +1,5 @@
+// /app/page.tsx
+
 'use client';
 
 import React, { useState, useEffect, useRef, useCallback } from 'react';
@@ -7,7 +9,6 @@ import RestaurantCard from '@/components/RestaurantCard';
 import { useLanguage } from '@/contexts/LanguageContext';
 import { isOpenNow } from '@/lib/timeUtils'; 
 
-// SECURE: Strict columns to prevent private admin notes from leaking
 const PUBLIC_COLUMNS = 'id, title, description, restaurant_price, cuisine, food_restrictions, takeout_available, takeout_menu, total_seats, avg_stay_time, image_url, address, payment_methods, website_url, discount_info, title_en, description_en, takeout_menu_en, full_menu, full_menu_en, other_options, translations, category_collabs, lat, lng, operating_hours, hours_source, image_urls, discount_type, food_restrictions_description, takeout_how_to, image_formInput_url, custom_fields, status';
 
 const CAMPUSES = {
@@ -240,18 +241,20 @@ export default function Home() {
       
       if (price < 3000) dbQuery = dbQuery.lte('restaurant_price', price);
       
-      // FIXED: Switched from .overlaps() to .contains() for Postgres Array columns
       Object.entries(selectedFilters).forEach(([type, values]) => {
         if (values.length > 0) {
           if (!type.startsWith('custom_fields.')) {
-             dbQuery = dbQuery.contains(getDbField(type), values);
+             dbQuery = dbQuery.overlaps(getDbField(type), values);
           }
         }
       });
 
-      // FIXED: Switched from .overlaps() to .contains() 
-      if (otherOptions.length > 0) dbQuery = dbQuery.contains('other_options', otherOptions);
-      if (takeoutOnly) dbQuery = dbQuery.eq('takeout_available', true);
+      if (otherOptions.length > 0) dbQuery = dbQuery.overlaps('other_options', otherOptions);
+      
+      if (takeoutOnly) {
+        dbQuery = dbQuery.or('takeout_available.eq.true,takeout_available.eq.はい,custom_fields->>takeout_available_text.eq.はい');
+      }
+      
       if (stayDuration) dbQuery = dbQuery.eq('avg_stay_time', stayDuration);
 
       const customFilterEntries = Object.entries(selectedFilters).filter(([t]) => t.startsWith('custom_fields.') && selectedFilters[t].length > 0);
@@ -545,6 +548,26 @@ export default function Home() {
                 </div>
 
                 <div className="mb-8">
+                  <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_stay_time', '滞在時間')}</label>
+                  <div className="flex flex-wrap gap-2">
+                    {[
+                      { id: '〜15分', label: 'stay_15', defaultText: '〜15分' },
+                      { id: '15分〜30分', label: 'stay_15_30', defaultText: '15分〜30分' },
+                      { id: '30分〜1時間', label: 'stay_30_60', defaultText: '30分〜1時間' },
+                      { id: '1時間以上', label: 'stay_60_plus', defaultText: '1時間以上' }
+                    ].map(opt => (
+                      <button
+                        key={opt.id}
+                        onClick={() => setStayDuration(stayDuration === opt.id ? '' : opt.id)}
+                        className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${stayDuration === opt.id ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                      >
+                        {t(opt.label, opt.defaultText)}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="mb-8">
                   <div className="flex justify-between items-center mb-4">
                     <label className="block text-xs font-bold text-gray-400 uppercase">{t('filter_budget', '予算')}</label>
                     <span className="text-orange-600 font-black text-sm bg-orange-50 px-2 py-1 rounded-md">{price === 3000 ? t('price_no_limit', '制限なし') : t('price_under_amount', '¥{{price}} 以下', { price: price })}</span>
@@ -559,7 +582,7 @@ export default function Home() {
                   </label>
                 </div>
                 
-                {Array.from(new Set(masterFilters.map(f => f.type))).map((type) => {
+                {Array.from(new Set(masterFilters.map(f => f.type))).map((type) => {                  
                   const options = masterFilters.filter(f => f.type === type);
                   if (options.length === 0) return null;
 

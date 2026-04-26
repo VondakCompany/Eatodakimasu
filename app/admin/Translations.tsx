@@ -1,3 +1,4 @@
+// /app/admin/Translations.tsx
 'use client';
 import { useState, useMemo } from 'react';
 import { supabase } from '@/lib/supabaseClient';

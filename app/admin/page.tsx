@@ -1,3 +1,5 @@
+// /app/admin/page.tsx
+
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
