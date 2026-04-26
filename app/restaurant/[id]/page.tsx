@@ -17,6 +17,7 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const [customFilterTypes, setCustomFilterTypes] = useState<string[]>([]);
   
   const [formSchemaBlocks, setFormSchemaBlocks] = useState<any[]>([]);
+  const [formBaseColumns, setFormBaseColumns] = useState<any[]>([]);
   
   const [loading, setLoading] = useState(true);
   const [isSlowData, setIsSlowData] = useState(false);
@@ -65,7 +66,10 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
               res.data.data.sections.forEach((s: any) => extractBlocks(s.blocks));
               setFormSchemaBlocks(allBlocks);
             }
-          })
+          }),
+          
+        supabase.from('form_base_columns').select('*').eq('is_hidden', false)
+          .then(res => { if (res.data) setFormBaseColumns(res.data); })
       ]);
 
       setLoading(false);
@@ -129,7 +133,6 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
   const takeoutData = restaurant.takeout_menu || restaurant.custom_fields?.takeout_available_text;
   const displayTakeout = currentLang === 'ja' ? takeoutData : (restaurant.translations?.[currentLang]?.takeout_menu || takeoutData);
 
-  // FIX: Properly constructed Google Maps URL
   const mapEmbedUrl = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}&t=&z=16&ie=UTF8&iwloc=&output=embed` : null;
   const mapOutboundLink = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}` : null;
 
@@ -290,13 +293,26 @@ export default function RestaurantPage({ params }: { params: Promise<{ id: strin
                   );
                 })}
 
+                {/* PUBLIC VISIBILITY: Render any Custom Field mapping that is marked Public */}
                 {restaurant.custom_fields && Object.entries(restaurant.custom_fields).map(([key, value]) => {
                   if (!value) return null; 
 
                   const schemaBlock = formSchemaBlocks.find(b => b.dbColumn === `custom_fields.${key}`);
-                  if (!schemaBlock || schemaBlock.isPublicCustomField === false) return null;
+                  const baseCol = formBaseColumns.find(c => c.id === `custom_fields.${key}`);
+                  
+                  if (!baseCol && (!schemaBlock || schemaBlock.isPublicCustomField === false)) return null;
 
-                  const displayLabel = schemaBlock.label;
+                  const displayLabel = baseCol?.label || schemaBlock?.label || key.replace(/_/g, ' ');
+                  const isUrl = typeof value === 'string' && (value.startsWith('http') || value.includes('supabase.co/storage'));
+
+                  if (isUrl) {
+                     return (
+                       <li key={key} className="flex flex-col items-start mt-4 mb-2">
+                         <span className="font-bold text-gray-500 mb-2 flex items-center"><span className="w-6 text-xl mr-3 text-center">📸</span> {displayLabel}</span> 
+                         <img src={value} alt={displayLabel} className="max-w-[200px] w-full object-cover rounded-xl shadow-sm border border-gray-200" />
+                       </li>
+                     );
+                  }
 
                   return (
                     <li key={key} className="flex items-start">

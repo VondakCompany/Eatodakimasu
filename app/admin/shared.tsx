@@ -59,13 +59,15 @@ export const RestaurantCard = ({
   tab, 
   onEdit, 
   onStatusUpdate, 
-  onDelete 
+  onDelete,
+  formBaseColumns = []
 }: { 
   restaurant: any, 
   tab: 'directory' | 'pending', 
   onEdit: (r: any) => void, 
   onStatusUpdate: (r: any, s: string) => void, 
-  onDelete: (id: string, title: string) => void 
+  onDelete: (id: string, title: string) => void,
+  formBaseColumns?: any[]
 }) => (
   <div className="bg-white p-6 rounded-[32px] shadow-sm border border-gray-200 flex flex-col hover:shadow-xl transition-all duration-300">
     {restaurant.image_url ? (
@@ -84,17 +86,48 @@ export const RestaurantCard = ({
     </div>
     <p className="text-xs text-orange-500 font-bold mb-4">¥{restaurant.restaurant_price || '---'}</p>
 
-    {/* ADMIN VISIBILITY: Shows standard tags AND all Custom Fields blindly */}
+    {/* ADMIN VISIBILITY: Promoted & Standard Custom Fields */}
+    {restaurant.custom_fields && Object.keys(restaurant.custom_fields).length > 0 && (
+      <div className="flex flex-wrap gap-2 mb-4">
+        {Object.entries(restaurant.custom_fields).map(([key, val], idx) => {
+          const dbId = `custom_fields.${key}`;
+          const colDef = formBaseColumns.find(c => c.id === dbId);
+          
+          // Don't show explicitly hidden fields
+          if (colDef?.is_hidden) return null; 
+          
+          const label = colDef ? colDef.label : key.replace(/_/g, ' ');
+          const isPromoted = colDef && !colDef.is_hidden;
+          const vals = Array.isArray(val) ? val : [val];
+          
+          return vals.map((tag: any, subIdx) => {
+            const isImage = typeof tag === 'string' && (tag.startsWith('http') || tag.includes('supabase.co'));
+            if (isImage) {
+              return (
+                <div key={`${key}-${idx}-${subIdx}`} className={`flex flex-col gap-1 w-16 relative group ${isPromoted ? 'p-1 bg-blue-50 border-blue-200 rounded-lg border' : ''}`}>
+                  <span className={`text-[8px] font-black uppercase truncate ${isPromoted ? 'text-blue-600' : 'text-gray-400'}`} title={label}>
+                    {isPromoted && '★ '}{label}
+                  </span>
+                  <img src={tag} alt={key} className="w-full h-16 object-cover rounded-md border border-gray-200" />
+                </div>
+              );
+            }
+            return (
+              <span key={`${key}-${idx}-${subIdx}`} className={`text-[9px] font-black px-2 py-1 rounded-md truncate max-w-[120px] flex items-center gap-1 ${isPromoted ? 'bg-blue-50 text-blue-700 border border-blue-200 shadow-sm' : 'text-gray-500 bg-gray-100 border border-transparent'}`} title={`${label}: ${tag}`}>
+                {isPromoted && '★'} {label}: {tag}
+              </span>
+            );
+          });
+        })}
+      </div>
+    )}
+
+    {/* ADMIN VISIBILITY: Standard Base DB text tags */}
     <div className="flex flex-wrap gap-1 mb-4">
       {['cuisine', 'food_restrictions', 'payment_methods', 'restaurant_area', 'other_options']
         .flatMap(field => restaurant[field] || [])
-        .concat(
-          restaurant.custom_fields
-            ? Object.values(restaurant.custom_fields).flatMap(val => Array.isArray(val) ? val : [val])
-            : []
-        )
         .map((tag: any, idx) => (
-          <span key={`${tag}-${idx}`} className="text-[9px] font-black text-gray-500 bg-gray-100 px-2 py-1 rounded-md truncate max-w-[100px]" title={tag}>
+          <span key={`standard-${tag}-${idx}`} className="text-[9px] font-black text-gray-500 bg-gray-100 px-2 py-1 rounded-md truncate max-w-[100px]" title={tag}>
             {tag}
           </span>
       ))}

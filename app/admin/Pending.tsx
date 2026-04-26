@@ -7,12 +7,14 @@ export default function Pending({
   restaurants, 
   onEdit, 
   onStatusUpdate, 
-  onDelete 
+  onDelete,
+  formBaseColumns
 }: { 
   restaurants: any[], 
   onEdit: (r: any) => void, 
   onStatusUpdate: (r: any, s: string) => void, 
-  onDelete: (id: string, title: string) => void 
+  onDelete: (id: string, title: string) => void,
+  formBaseColumns: any[]
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -55,6 +57,7 @@ export default function Pending({
               onEdit={onEdit}
               onStatusUpdate={onStatusUpdate}
               onDelete={onDelete}
+              formBaseColumns={formBaseColumns}
             />
           ))}
         </div>

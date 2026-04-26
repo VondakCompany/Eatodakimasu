@@ -9,7 +9,7 @@ import CategoryHub from './CategoryHub';
 import Translations from './Translations';
 import AdStudio from './AdStudio';
 import UserManagement from './UserManagement';
-import RegistrationEditor from './RegistrationEditor';
+import { RegistrationEditor } from './RegistrationEditor';
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
 
@@ -36,8 +36,10 @@ export default function AdminDashboard() {
   const [appLanguages, setAppLanguages] = useState<any[]>([]);
   const [uiTranslations, setUiTranslations] = useState<any[]>([]);
   const [adCampaigns, setAdCampaigns] = useState<any[]>([]);
+  const [formBaseColumns, setFormBaseColumns] = useState<any[]>([]);
   
   const [editingData, setEditingData] = useState<any | null>(null);
+  const [showHiddenFields, setShowHiddenFields] = useState(false);
   const editingDataRef = useRef<any>(null); 
   
   const [uploadingImage, setUploadingImage] = useState(false);
@@ -181,11 +183,46 @@ export default function AdminDashboard() {
         .then(res => { if (res.data) setUiTranslations(res.data); }),
         
       supabase.from('ad_campaigns').select('*')
-        .then(res => { if (res.data) setAdCampaigns(res.data); })
+        .then(res => { if (res.data) setAdCampaigns(res.data); }),
+
+      supabase.from('form_base_columns').select('*')
+        .then(res => { if (res.data) setFormBaseColumns(res.data); })
     ]).finally(() => {
       setLoading(false);
       clearTimeout(slowDataTimer);
     });
+  };
+
+  const updateColumnStatus = async (key: string, val: any, action: 'promote' | 'hide' | 'restore') => {
+    let actionError = null;
+
+    if (action === 'restore') {
+      const { error } = await supabase.from('form_base_columns').delete().eq('id', key);
+      actionError = error;
+    } else {
+      const isHidden = action === 'hide';
+      let dataType = 'string';
+      if (typeof val === 'number') dataType = 'number';
+      if (typeof val === 'boolean') dataType = 'boolean';
+      if (typeof val === 'object' && val !== null) dataType = 'array';
+      
+      const label = key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      
+      const { error } = await supabase.from('form_base_columns').upsert({
+        id: key,
+        label: label,
+        data_type: dataType,
+        is_hidden: isHidden
+      });
+      actionError = error;
+    }
+
+    if (actionError) {
+      alert(`Database Error: ${actionError.message}\n\nPlease verify that your Supabase RLS allows INSERT/UPDATE/DELETE on form_base_columns.`);
+      console.error("Column Update Error:", actionError);
+    } else {
+      fetchAllData();
+    }
   };
 
   const batchUpdateCoordinates = async () => {
@@ -239,7 +276,6 @@ export default function AdminDashboard() {
         let needsUpdate = false;
         const updates: any = {};
 
-        // 1. Scrub Top-Level Array Columns
         for (const col of columnsToScrub) {
           const currentArray = rest[col as keyof typeof rest] as string[] || [];
           if (currentArray.length > 0) {
@@ -251,7 +287,6 @@ export default function AdminDashboard() {
           }
         }
 
-        // 2. Scrub JSONB Custom Fields
         if (rest.custom_fields) {
             let customFieldsChanged = false;
             const newCustomFields = { ...rest.custom_fields as Record<string, any> };
@@ -632,8 +667,8 @@ export default function AdminDashboard() {
           {activeTab === 'ad_studio' && hasAccess('ad_studio') && <AdStudio adCampaigns={adCampaigns} setAdCampaigns={setAdCampaigns} liveRestaurants={liveRestaurants} activeTab={activeTab} />}
           {activeTab === 'translations' && hasAccess('translations') && <Translations appLanguages={appLanguages} setAppLanguages={setAppLanguages} uiTranslations={uiTranslations} setUiTranslations={setUiTranslations} masterFilters={masterFilters} setMasterFilters={setMasterFilters} liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} updateBaseTagName={updateBaseTagName} />}
           {activeTab === 'categories' && hasAccess('categories') && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
-          {activeTab === 'directory' && hasAccess('directory') && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
-          {activeTab === 'pending' && hasAccess('pending') && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} />}
+          {activeTab === 'directory' && hasAccess('directory') && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} formBaseColumns={formBaseColumns} />}
+          {activeTab === 'pending' && hasAccess('pending') && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} formBaseColumns={formBaseColumns} />}
           {activeTab === 'registration' && hasAccess('registration') && <RegistrationEditor />}
         </div>
       )}
@@ -673,321 +708,416 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {editingData && (
-        <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
-          <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col relative animate-in slide-in-from-bottom-8 duration-300">
-            <div className="sticky top-0 bg-white/90 backdrop-blur p-8 border-b border-gray-100 z-10 flex flex-col gap-4">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h2 className="text-3xl font-black text-gray-900">Edit Details</h2>
-                  <p className="text-orange-500 font-bold">{editingData.title}</p>
+      {editingData && (() => {
+        // Calculate fields dynamically so they can be distributed across sections
+        const dynamicDbFields = Array.from(new Set(masterFilters.map(f => getDbField(f.type))));
+        const knownKeys = [
+          'id', 'created_at', 'title', 'website_url', 'restaurant_price', 'address',
+          'total_seats', 'avg_stay_time', 'lat', 'lng', 'status', 'operating_hours',
+          'takeout_menu', 'discount_info', 'description', 'full_menu', 'image_url',
+          'image_urls', 'contact_name', 'contact_phone', 'contact_email', 'photo_method',
+          'admin_notes', 'other_options', 'category_collabs', 'dist_meters', 
+          'translations', 'campus_name', 'campus_dist_meters',
+          ...dynamicDbFields 
+        ];
+
+        const customKeys = Object.keys(editingData).filter(key => !knownKeys.includes(key));
+        
+        const promotedKeys = customKeys.filter(key => {
+          const config = formBaseColumns.find(c => c.id === key);
+          return config && !config.is_hidden;
+        });
+
+        const bottomSectionKeys = customKeys.filter(key => {
+          if (promotedKeys.includes(key)) return false;
+          const config = formBaseColumns.find(c => c.id === key);
+          if (config && config.is_hidden) return showHiddenFields;
+          return true;
+        });
+
+        return (
+          <div className="fixed inset-0 bg-gray-900/60 backdrop-blur-md z-[100] flex items-center justify-center p-4">
+            <div className="bg-white rounded-[48px] shadow-2xl w-full max-w-5xl max-h-[90vh] overflow-y-auto flex flex-col relative animate-in slide-in-from-bottom-8 duration-300">
+              <div className="sticky top-0 bg-white/90 backdrop-blur p-8 border-b border-gray-100 z-10 flex flex-col gap-4">
+                <div className="flex justify-between items-center">
+                  <div>
+                    <h2 className="text-3xl font-black text-gray-900">Edit Details</h2>
+                    <p className="text-orange-500 font-bold">{editingData.title}</p>
+                  </div>
+                  <button onClick={() => setEditingData(null)} className="text-gray-400 hover:text-red-500 text-3xl font-black bg-gray-100 hover:bg-red-50 w-14 h-14 rounded-full flex items-center justify-center transition">
+                    <Icons.Close className="w-6 h-6" />
+                  </button>
                 </div>
-                <button onClick={() => setEditingData(null)} className="text-gray-400 hover:text-red-500 text-3xl font-black bg-gray-100 hover:bg-red-50 w-14 h-14 rounded-full flex items-center justify-center transition">
-                  <Icons.Close className="w-6 h-6" />
-                </button>
               </div>
-            </div>
-            <div className="p-10 space-y-16">
-              <section className="p-8 bg-purple-50 rounded-[32px] border border-purple-100">
-                <h3 className="text-xl font-black text-purple-900 mb-6 flex items-center gap-2">
-                  <Icons.Categories className="w-6 h-6 text-purple-500" /> Participating Events & Shop Specifics
-                </h3>
-                <div className="grid grid-cols-1 gap-4">
-                  {customCategories.map(cat => (
-                    <div key={cat.id} className={`p-6 rounded-2xl border-2 transition ${editingData.other_options?.includes(cat.name) ? 'bg-white border-purple-400 shadow-md' : 'bg-white/50 border-gray-100 opacity-60'}`}>
-                      <label className="flex items-center cursor-pointer mb-4">
-                        <input type="checkbox" checked={editingData.other_options?.includes(cat.name)} onChange={() => toggleEditArray('other_options', cat.name)} className="mr-3 h-6 w-6 accent-purple-600" />
-                        <span className="font-black text-lg">{cat.name}</span>
-                      </label>
-                      {editingData.other_options?.includes(cat.name) && (
-                        <div className="animate-in slide-in-from-top-2">
-                           <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-2">Shop Collaboration Text (JA)</label>
-                           <textarea rows={2} value={editingData.category_collabs?.[cat.name] || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, category_collabs: { ...(prev.category_collabs || {}), [cat.name]: e.target.value }}))} placeholder="Collab content..." className="w-full p-4 border border-purple-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-purple-500" />
-                        </div>
-                      )}
+              <div className="p-10 space-y-16">
+                <section className="p-8 bg-purple-50 rounded-[32px] border border-purple-100">
+                  <h3 className="text-xl font-black text-purple-900 mb-6 flex items-center gap-2">
+                    <Icons.Categories className="w-6 h-6 text-purple-500" /> Participating Events & Shop Specifics
+                  </h3>
+                  <div className="grid grid-cols-1 gap-4">
+                    {customCategories.map(cat => (
+                      <div key={cat.id} className={`p-6 rounded-2xl border-2 transition ${editingData.other_options?.includes(cat.name) ? 'bg-white border-purple-400 shadow-md' : 'bg-white/50 border-gray-100 opacity-60'}`}>
+                        <label className="flex items-center cursor-pointer mb-4">
+                          <input type="checkbox" checked={editingData.other_options?.includes(cat.name)} onChange={() => toggleEditArray('other_options', cat.name)} className="mr-3 h-6 w-6 accent-purple-600" />
+                          <span className="font-black text-lg">{cat.name}</span>
+                        </label>
+                        {editingData.other_options?.includes(cat.name) && (
+                          <div className="animate-in slide-in-from-top-2">
+                             <label className="text-[10px] font-black text-purple-400 uppercase tracking-widest block mb-2">Shop Collaboration Text (JA)</label>
+                             <textarea rows={2} value={editingData.category_collabs?.[cat.name] || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, category_collabs: { ...(prev.category_collabs || {}), [cat.name]: e.target.value }}))} placeholder="Collab content..." className="w-full p-4 border border-purple-100 rounded-2xl text-sm outline-none focus:ring-2 focus:ring-purple-500" />
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </section>
+
+                {/* --- 1. PRIVATE CONTACT INFO & LOGISTICS --- */}
+                <section className="space-y-4">
+                  <h3 className="text-xl font-black text-gray-900 border-b pb-2 flex items-center gap-2">
+                    <Icons.Lock className="w-6 h-6 text-red-500" /> Private Admin Data & Logistics
+                  </h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                    <div className="grid grid-cols-1 gap-4 bg-red-50 p-6 rounded-3xl border border-red-100">
+                      <label className="text-[10px] font-black text-red-400 uppercase tracking-widest">Contact Details</label>
+                      <input type="text" value={editingData.contact_name || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_name: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="担当者名 (Contact Name)" />
+                      <input type="text" value={editingData.contact_phone || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_phone: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="電話番号 (Phone)" />
+                      <input type="text" value={editingData.contact_email || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_email: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="メールアドレス (Email)" />
                     </div>
-                  ))}
-                </div>
-              </section>
-
-              {/* --- 1. PRIVATE CONTACT INFO & LOGISTICS --- */}
-              <section className="space-y-4">
-                <h3 className="text-xl font-black text-gray-900 border-b pb-2 flex items-center gap-2">
-                  <Icons.Lock className="w-6 h-6 text-red-500" /> Private Admin Data & Logistics
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="grid grid-cols-1 gap-4 bg-red-50 p-6 rounded-3xl border border-red-100">
-                    <label className="text-[10px] font-black text-red-400 uppercase tracking-widest">Contact Details</label>
-                    <input type="text" value={editingData.contact_name || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_name: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="担当者名 (Contact Name)" />
-                    <input type="text" value={editingData.contact_phone || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_phone: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="電話番号 (Phone)" />
-                    <input type="text" value={editingData.contact_email || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, contact_email: e.target.value}))} className="w-full p-4 border border-red-100 rounded-2xl font-bold shadow-sm" placeholder="メールアドレス (Email)" />
+                    <div className="grid grid-cols-1 gap-4 bg-orange-50 p-6 rounded-3xl border border-orange-100">
+                      <label className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Photo Logistics & Admin Notes</label>
+                      <input type="text" value={editingData.photo_method || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, photo_method: e.target.value}))} className="w-full p-4 border border-orange-100 rounded-2xl font-bold shadow-sm" placeholder="写真のご提供方法 (Photo Method)" />
+                      <textarea rows={4} value={editingData.admin_notes || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, admin_notes: e.target.value}))} className="w-full p-4 border border-orange-100 rounded-2xl font-medium italic shadow-sm" placeholder="管理者用メモ (Internal Notes)" />
+                    </div>
                   </div>
-                  <div className="grid grid-cols-1 gap-4 bg-orange-50 p-6 rounded-3xl border border-orange-100">
-                    <label className="text-[10px] font-black text-orange-400 uppercase tracking-widest">Photo Logistics & Admin Notes</label>
-                    <input type="text" value={editingData.photo_method || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, photo_method: e.target.value}))} className="w-full p-4 border border-orange-100 rounded-2xl font-bold shadow-sm" placeholder="写真のご提供方法 (Photo Method)" />
-                    <textarea rows={4} value={editingData.admin_notes || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, admin_notes: e.target.value}))} className="w-full p-4 border border-orange-100 rounded-2xl font-medium italic shadow-sm" placeholder="管理者用メモ (Internal Notes)" />
+                </section>
+
+                {/* --- 2. MASTER FILTER TAGS (FULLY DYNAMIC) --- */}
+                <section className="space-y-8">
+                  <h3 className="text-xl font-black text-gray-900 border-b pb-2">Master Filter Tags</h3>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
+                    {dynamicFilterTypes.map(type => {
+                      const dbField = getDbField(type as string);
+                      
+                      const formatHeader = (text: string) => {
+                        if (!text) return '';
+                        const formatted = text.replace(/_/g, ' ').toUpperCase();
+                        return formatted.endsWith('S') ? formatted : `${formatted}S`;
+                      };
+
+                      return (
+                        <div key={type as string}>
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">{formatHeader(type as string)}</label>
+                          <div className="flex flex-col gap-2">
+                            {masterFilters.filter(f => f.type === type).map(opt => (
+                              <label key={opt.id} className="flex items-center cursor-pointer p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition">
+                                <input 
+                                  type="checkbox" 
+                                  checked={(editingData[dbField] || []).includes(opt.name)} 
+                                  onChange={() => toggleEditArray(dbField, opt.name)} 
+                                  className="mr-3 h-5 w-5 accent-orange-600 cursor-pointer" 
+                                />
+                                <span className="text-sm font-bold text-gray-700">{opt.name}</span>
+                              </label>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
-                </div>
-              </section>
+                </section>
 
-              {/* --- 2. MASTER FILTER TAGS (FULLY DYNAMIC) --- */}
-              <section className="space-y-8">
-                <h3 className="text-xl font-black text-gray-900 border-b pb-2">Master Filter Tags</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">
-                  {dynamicFilterTypes.map(type => {
-                    const dbField = getDbField(type as string);
-                    
-                    const formatHeader = (text: string) => {
-                      if (!text) return '';
-                      const formatted = text.replace(/_/g, ' ').toUpperCase();
-                      return formatted.endsWith('S') ? formatted : `${formatted}S`;
-                    };
-
-                    return (
-                      <div key={type as string}>
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">{formatHeader(type as string)}</label>
-                        <div className="flex flex-col gap-2">
-                          {masterFilters.filter(f => f.type === type).map(opt => (
-                            <label key={opt.id} className="flex items-center cursor-pointer p-3 rounded-xl border border-gray-100 hover:bg-gray-50 transition">
-                              <input 
-                                type="checkbox" 
-                                checked={(editingData[dbField] || []).includes(opt.name)} 
-                                onChange={() => toggleEditArray(dbField, opt.name)} 
-                                className="mr-3 h-5 w-5 accent-orange-600 cursor-pointer" 
-                              />
-                              <span className="text-sm font-bold text-gray-700">{opt.name}</span>
-                            </label>
+                <section className="space-y-8">
+                   <h3 className="text-xl font-black text-gray-900 border-b pb-2">Basic Info & Content</h3>
+                   <div className="bg-gray-50 p-6 rounded-3xl border border-gray-200">
+                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Gallery Images (Multiple)</label>
+                      <input type="file" multiple accept="image/*" onChange={handleGalleryUpload} className="text-sm font-bold mb-6 block w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100" />
+                      {editingData.image_urls && editingData.image_urls.length > 0 && (
+                        <div className="flex flex-wrap gap-4 mt-4">
+                          {editingData.image_urls.map((url: string, idx: number) => (
+                            <div key={idx} className="relative w-28 h-28 group">
+                              <img src={url} className="w-full h-full object-cover rounded-2xl shadow-sm border border-gray-200" />
+                              <button onClick={() => removeGalleryImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 shadow-md transition transform hover:scale-110">
+                                <Icons.Close className="w-4 h-4" />
+                              </button>
+                            </div>
                           ))}
                         </div>
+                      )}
+                   </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Main Cover Photo</label>
+                        <img src={editingData.image_url || '/images/default.jpg'} className="w-full h-48 object-cover rounded-3xl mb-4 border shadow-sm" alt="Preview" />
+                        <input type="file" onChange={handleImageUpload} className="text-sm font-bold w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200" />
                       </div>
-                    )
-                  })}
-                </div>
-              </section>
+                      <div className="space-y-4 flex flex-col justify-end">
+                        <input type="text" value={editingData.title || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, title: e.target.value}))} className="w-full p-4 border rounded-2xl font-black text-lg shadow-sm" placeholder="Shop Title" />
+                        <input type="text" value={editingData.website_url || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, website_url: e.target.value}))} className="w-full p-4 border border-blue-100 bg-blue-50/30 rounded-2xl font-bold text-blue-600 shadow-sm" placeholder="Website URL (https://...)" />
+                        <input type="number" value={editingData.restaurant_price || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, restaurant_price: parseInt(e.target.value)}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Price" />
+                        <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, address: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Address" />
+                        
+                        <div className="grid grid-cols-2 gap-4">
+                          <input type="text" value={editingData.total_seats || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, total_seats: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="総席数 (e.g. 30席)" />
+                          <input type="text" value={editingData.avg_stay_time || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, avg_stay_time: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="平均滞接時間 (e.g. 1時間)" />
+                        </div>
 
-              <section className="space-y-8">
-                 <h3 className="text-xl font-black text-gray-900 border-b pb-2">Basic Info & Content</h3>
-                 <div className="bg-gray-50 p-6 rounded-3xl border border-gray-200">
-                    <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-4">Gallery Images (Multiple)</label>
-                    <input type="file" multiple accept="image/*" onChange={handleGalleryUpload} className="text-sm font-bold mb-6 block w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100" />
-                    {editingData.image_urls && editingData.image_urls.length > 0 && (
-                      <div className="flex flex-wrap gap-4 mt-4">
-                        {editingData.image_urls.map((url: string, idx: number) => (
-                          <div key={idx} className="relative w-28 h-28 group">
-                            <img src={url} className="w-full h-full object-cover rounded-2xl shadow-sm border border-gray-200" />
-                            <button onClick={() => removeGalleryImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center text-xs opacity-0 group-hover:opacity-100 shadow-md transition transform hover:scale-110">
-                              <Icons.Close className="w-4 h-4" />
-                            </button>
-                          </div>
-                        ))}
+                        <div className="flex gap-2">
+                          <input type="text" disabled value={`Lat: ${editingData.lat || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
+                          <input type="text" disabled value={`Lng: ${editingData.lng || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
+                        </div>
+
+                        <div className="mt-2">
+                          <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Publish Status</label>
+                          <select 
+                            value={editingData.status || 'pending'} 
+                            onChange={(e) => setEditingData((prev: any) => ({...prev, status: e.target.value}))}
+                            className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm bg-white outline-none focus:ring-2 focus:ring-orange-500"
+                          >
+                            <option value="pending">Pending</option>
+                            <option value="approved">Approved (Live)</option>
+                            <option value="rejected">Rejected</option>
+                          </select>
+                        </div>
+
                       </div>
-                    )}
-                 </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div>
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Main Cover Photo</label>
-                      <img src={editingData.image_url || '/images/default.jpg'} className="w-full h-48 object-cover rounded-3xl mb-4 border shadow-sm" alt="Preview" />
-                      <input type="file" onChange={handleImageUpload} className="text-sm font-bold w-full file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-gray-100 file:text-gray-700 hover:file:bg-gray-200" />
-                    </div>
-                    <div className="space-y-4 flex flex-col justify-end">
-                      <input type="text" value={editingData.title || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, title: e.target.value}))} className="w-full p-4 border rounded-2xl font-black text-lg shadow-sm" placeholder="Shop Title" />
-                      <input type="text" value={editingData.website_url || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, website_url: e.target.value}))} className="w-full p-4 border border-blue-100 bg-blue-50/30 rounded-2xl font-bold text-blue-600 shadow-sm" placeholder="Website URL (https://...)" />
-                      <input type="number" value={editingData.restaurant_price || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, restaurant_price: parseInt(e.target.value)}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Price" />
-                      <input type="text" value={editingData.address || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, address: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm" placeholder="Address" />
-                      
-                      <div className="grid grid-cols-2 gap-4">
-                        <input type="text" value={editingData.total_seats || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, total_seats: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="総席数 (e.g. 30席)" />
-                        <input type="text" value={editingData.avg_stay_time || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, avg_stay_time: e.target.value}))} className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm" placeholder="平均滞接時間 (e.g. 1時間)" />
+                   </div>
+                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Operating Hours (7-Day Grid)</label>
+                        <div className="grid grid-cols-1 gap-2 border border-gray-200 p-4 rounded-[24px] bg-white">
+                          {DAYS.map(day => {
+                            const parsed = typeof editingData.operating_hours === 'object' && editingData.operating_hours !== null ? editingData.operating_hours : {};
+                            return (
+                              <div key={day} className="flex items-center gap-3">
+                                 <span className="w-16 text-xs font-bold text-gray-600 text-right">{day}</span>
+                                 <input 
+                                    type="text" 
+                                    value={parsed[day] || ''} 
+                                    onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: {...(typeof prev.operating_hours === 'object' && prev.operating_hours !== null ? prev.operating_hours : {}), [day]: e.target.value}}))} 
+                                    className="flex-1 p-2 bg-gray-50 border border-gray-100 rounded-xl text-sm outline-none focus:border-orange-300" 
+                                    placeholder="11:00 - 22:00" 
+                                 />
+                              </div>
+                            )
+                          })}
+                        </div>
                       </div>
-
-                      <div className="flex gap-2">
-                        <input type="text" disabled value={`Lat: ${editingData.lat || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
-                        <input type="text" disabled value={`Lng: ${editingData.lng || 'None'}`} className="flex-1 p-3 bg-gray-50 border rounded-xl text-xs font-mono text-gray-500" />
+                      <div>
+                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Takeout Menu Details</label>
+                        <textarea rows={4} value={editingData.takeout_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, takeout_menu: e.target.value}))} className="w-full h-full min-h-[150px] p-6 border rounded-[32px] text-sm bg-orange-50/20 font-medium shadow-inner" placeholder="テイクアウトメニュー (Takeout menu info)" />
                       </div>
+                   </div>
+                   <div>
+                      <label className="text-[10px] font-black text-orange-400 uppercase tracking-widest block mb-2">Discount / Service Info</label>
+                      <textarea rows={2} value={editingData.discount_info || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, discount_info: e.target.value}))} className="w-full p-6 border border-orange-100 bg-orange-50/10 rounded-[24px] text-xs font-medium shadow-sm" placeholder="割引・サービス (Discount/Student services)" />
+                   </div>
+                   <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, description: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm" placeholder="Description..." />
+                   <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, full_menu: e.target.value}))} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium shadow-inner" placeholder="Menu..." />
+                   
+                   {/* --- PROMOTED CUSTOM FIELDS --- */}
+                   {promotedKeys.length > 0 && (
+                     <div className="pt-8 mt-8 border-t border-gray-200">
+                        <h4 className="text-[10px] font-black text-orange-500 uppercase tracking-widest mb-6">Promoted Custom Fields</h4>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                           {promotedKeys.map(key => {
+                             const val = editingData[key];
+                             const valueType = val === null ? 'null' : typeof val;
+                             const isUrl = typeof val === 'string' && (val.startsWith('http') || val.includes('supabase.co/storage'));
+                             const isLongText = typeof val === 'string' && val.length > 80;
+                             const isObject = val !== null && valueType === 'object';
+                             
+                             const fieldHeader = (
+                               <div className="flex justify-between items-start mb-2">
+                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
+                                   {key.replace(/_/g, ' ')} {isLongText ? '(Long Text)' : ''}
+                                 </label>
+                                 <button onClick={() => updateColumnStatus(key, val, 'restore')} className="text-[9px] font-bold text-gray-400 hover:text-red-500 transition" title="Send back to unmapped fields list">
+                                   UN-PROMOTE
+                                 </button>
+                               </div>
+                             );
 
-                      <div className="mt-2">
-                        <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Publish Status</label>
-                        <select 
-                          value={editingData.status || 'pending'} 
-                          onChange={(e) => setEditingData((prev: any) => ({...prev, status: e.target.value}))}
-                          className="w-full p-4 border rounded-2xl font-bold shadow-sm text-sm bg-white outline-none focus:ring-2 focus:ring-orange-500"
-                        >
-                          <option value="pending">Pending</option>
-                          <option value="approved">Approved (Live)</option>
-                          <option value="rejected">Rejected</option>
-                        </select>
-                      </div>
+                             return (
+                               <div key={key} className={`col-span-1 ${isLongText || isObject || isUrl ? 'md:col-span-2' : ''}`}>
+                                  {isObject ? (
+                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200">
+                                      {fieldHeader}
+                                      <textarea readOnly rows={3} value={JSON.stringify(val, null, 2)} className="w-full p-4 border border-gray-200 bg-white rounded-xl text-xs font-mono text-gray-500 outline-none resize-y" />
+                                    </div>
+                                  ) : valueType === 'boolean' ? (
+                                    <div className="flex flex-col p-4 bg-gray-50 border border-gray-200 rounded-2xl shadow-sm">
+                                      {fieldHeader}
+                                      <div className="flex items-center justify-between mt-1">
+                                        <span className="text-sm font-black text-gray-700 capitalize">{key.replace(/_/g, ' ')}</span>
+                                        <input type="checkbox" checked={val} onChange={(e) => setEditingData((prev: any) => ({ ...prev, [key]: e.target.checked }))} className="w-6 h-6 accent-orange-500 cursor-pointer" />
+                                      </div>
+                                    </div>
+                                  ) : isUrl ? (
+                                    <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-sm">
+                                      {fieldHeader}
+                                      <img src={val} className="w-full max-h-48 object-cover rounded-xl border border-gray-200 shadow-sm mb-3 bg-white" alt={key} />
+                                      <input type="text" value={val} onChange={(e) => setEditingData((prev: any) => ({ ...prev, [key]: e.target.value }))} className="w-full p-3 border border-gray-200 rounded-xl font-mono text-gray-600 shadow-inner outline-none focus:ring-2 focus:ring-orange-500 bg-white transition text-xs" />
+                                    </div>
+                                  ) : isLongText ? (
+                                    <div>
+                                      {fieldHeader}
+                                      <textarea rows={3} value={val === null ? '' : val} onChange={(e) => setEditingData((prev: any) => ({ ...prev, [key]: e.target.value }))} className="w-full p-4 border border-gray-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-orange-500 bg-white transition resize-y" />
+                                    </div>
+                                  ) : (
+                                    <div>
+                                      {fieldHeader}
+                                      <input type={valueType === 'number' ? 'number' : 'text'} value={val === null ? '' : val} onChange={(e) => setEditingData((prev: any) => ({ ...prev, [key]: valueType === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value }))} className="w-full p-4 border border-gray-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-orange-500 bg-white transition" />
+                                    </div>
+                                  )}
+                               </div>
+                             );
+                           })}
+                        </div>
+                     </div>
+                   )}
+                </section>
 
-                    </div>
-                 </div>
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div>
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Operating Hours (7-Day Grid)</label>
-                      <div className="grid grid-cols-1 gap-2 border border-gray-200 p-4 rounded-[24px] bg-white">
-                        {DAYS.map(day => {
-                          const parsed = typeof editingData.operating_hours === 'object' && editingData.operating_hours !== null ? editingData.operating_hours : {};
-                          return (
-                            <div key={day} className="flex items-center gap-3">
-                               <span className="w-16 text-xs font-bold text-gray-600 text-right">{day}</span>
-                               <input 
-                                  type="text" 
-                                  value={parsed[day] || ''} 
-                                  onChange={(e) => setEditingData((prev: any) => ({...prev, operating_hours: {...(typeof prev.operating_hours === 'object' && prev.operating_hours !== null ? prev.operating_hours : {}), [day]: e.target.value}}))} 
-                                  className="flex-1 p-2 bg-gray-50 border border-gray-100 rounded-xl text-sm outline-none focus:border-orange-300" 
-                                  placeholder="11:00 - 22:00" 
-                               />
-                            </div>
-                          )
-                        })}
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest block mb-2">Takeout Menu Details</label>
-                      <textarea rows={4} value={editingData.takeout_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, takeout_menu: e.target.value}))} className="w-full h-full min-h-[150px] p-6 border rounded-[32px] text-sm bg-orange-50/20 font-medium shadow-inner" placeholder="テイクアウトメニュー (Takeout menu info)" />
-                    </div>
-                 </div>
-                 <div>
-                    <label className="text-[10px] font-black text-orange-400 uppercase tracking-widest block mb-2">Discount / Service Info</label>
-                    <textarea rows={2} value={editingData.discount_info || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, discount_info: e.target.value}))} className="w-full p-6 border border-orange-100 bg-orange-50/10 rounded-[24px] text-xs font-medium shadow-sm" placeholder="割引・サービス (Discount/Student services)" />
-                 </div>
-                 <textarea rows={5} value={editingData.description || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, description: e.target.value}))} className="w-full p-6 border rounded-[32px] text-lg leading-relaxed shadow-sm" placeholder="Description..." />
-                 <textarea rows={8} value={editingData.full_menu || ''} onChange={(e) => setEditingData((prev: any) => ({...prev, full_menu: e.target.value}))} className="w-full p-6 border rounded-[32px] bg-gray-50 font-medium shadow-inner" placeholder="Menu..." />
-              </section>
-
-              {/* --- AUTO-DETECTED DYNAMIC FIELDS --- */}
-              {(() => {
-                const dynamicDbFields = Array.from(new Set(masterFilters.map(f => getDbField(f.type))));
-                
-                const knownKeys = [
-                  'id', 'created_at', 'title', 'website_url', 'restaurant_price', 'address',
-                  'total_seats', 'avg_stay_time', 'lat', 'lng', 'status', 'operating_hours',
-                  'takeout_menu', 'discount_info', 'description', 'full_menu', 'image_url',
-                  'image_urls', 'contact_name', 'contact_phone', 'contact_email', 'photo_method',
-                  'admin_notes', 'other_options', 'category_collabs', 'dist_meters', 
-                  'translations', 'campus_name', 'campus_dist_meters',
-                  ...dynamicDbFields 
-                ];
-
-                const dynamicKeys = Object.keys(editingData).filter(key => !knownKeys.includes(key));
-
-                if (dynamicKeys.length === 0) return null;
-
-                return (
+                {/* --- AUTO-DETECTED DYNAMIC FIELDS (BOTTOM DUMP) --- */}
+                {bottomSectionKeys.length > 0 || showHiddenFields ? (
                   <section className="space-y-6 pt-8 border-t-2 border-dashed border-gray-200">
-                    <div>
-                      <h3 className="text-xl font-black text-gray-900 flex items-center gap-2">
-                        <Icons.Sync className="w-6 h-6 text-blue-500" /> Auto-Detected Database Fields
-                      </h3>
-                      <p className="text-xs font-bold text-gray-400 mt-1">These columns were found in Supabase but don't have custom UI yet.</p>
+                    <div className="flex justify-between items-end mb-6">
+                      <div>
+                        <h3 className="text-xl font-black text-gray-900 flex items-center gap-2">
+                          <Icons.Sync className="w-6 h-6 text-blue-500" /> Additional Database Fields
+                        </h3>
+                        <p className="text-xs font-bold text-gray-400 mt-1">Manage unmapped columns found in Supabase.</p>
+                      </div>
+                      <label className="flex items-center cursor-pointer gap-2">
+                        <input 
+                          type="checkbox" 
+                          checked={showHiddenFields} 
+                          onChange={e => setShowHiddenFields(e.target.checked)} 
+                          className="w-4 h-4 accent-blue-600 cursor-pointer" 
+                        />
+                        <span className="text-xs font-bold text-gray-500">Show Hidden</span>
+                      </label>
                     </div>
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-blue-50/30 p-6 rounded-[32px] border border-blue-100">
-                      {dynamicKeys.map(key => {
+                      {bottomSectionKeys.map(key => {
                         const val = editingData[key];
                         const valueType = val === null ? 'null' : typeof val;
-
-                        if (val !== null && valueType === 'object') {
-                          return (
-                            <div key={key} className="col-span-1 md:col-span-2 opacity-80">
-                              <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest block mb-2">
-                                {key.replace(/_/g, ' ')} (JSON/Array)
-                              </label>
-                              <textarea 
-                                readOnly
-                                rows={3}
-                                value={JSON.stringify(val, null, 2)}
-                                className="w-full p-4 border border-blue-100 bg-white/50 rounded-2xl text-xs font-mono text-gray-500 outline-none resize-y"
-                                placeholder="Empty JSON"
-                              />
-                            </div>
-                          );
-                        }
-
-                        if (valueType === 'boolean') {
-                          return (
-                            <div key={key} className="flex items-center justify-between p-4 bg-white border border-blue-200 rounded-2xl shadow-sm transition hover:border-blue-400">
-                              <label className="text-sm font-black text-blue-600 uppercase tracking-widest cursor-pointer flex-1" htmlFor={`dynamic-${key}`}>
-                                {key.replace(/_/g, ' ')}
-                              </label>
-                              <input 
-                                id={`dynamic-${key}`}
-                                type="checkbox"
-                                checked={val} 
-                                onChange={(e) => setEditingData((prev: any) => ({
-                                  ...prev, 
-                                  [key]: e.target.checked
-                                }))} 
-                                className="w-6 h-6 accent-blue-600 cursor-pointer" 
-                              />
-                            </div>
-                          );
-                        }
-
-                        if (valueType === 'number') {
-                          return (
-                            <div key={key}>
-                              <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-2">
-                                {key.replace(/_/g, ' ')} (Number)
-                              </label>
-                              <input 
-                                type="number"
-                                value={val === null ? '' : val} 
-                                onChange={(e) => setEditingData((prev: any) => ({
-                                  ...prev, 
-                                  [key]: e.target.value === '' ? null : Number(e.target.value)
-                                }))} 
-                                className="w-full p-4 border border-blue-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white transition" 
-                                placeholder="0"
-                              />
-                            </div>
-                          );
-                        }
-
-                        const isLongText = typeof val === 'string' && val.length > 80;
                         
-                        return (
-                          <div key={key} className={isLongText ? "col-span-1 md:col-span-2" : ""}>
-                            <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest block mb-2">
+                        const colConfig = formBaseColumns.find(c => c.id === key);
+                        const isHidden = colConfig?.is_hidden;
+
+                        const isUrl = typeof val === 'string' && (val.startsWith('http') || val.includes('supabase.co/storage'));
+                        const isLongText = typeof val === 'string' && val.length > 80;
+                        const isObject = val !== null && valueType === 'object';
+                        
+                        const fieldHeader = (
+                          <div className="flex justify-between items-start mb-3">
+                            <label className="text-[10px] font-black text-blue-600 uppercase tracking-widest flex items-center gap-2 flex-wrap">
                               {key.replace(/_/g, ' ')} {isLongText ? '(Long Text)' : ''}
+                              {isHidden && <span className="bg-red-100 text-red-600 px-1.5 py-0.5 rounded-[4px] text-[8px] border border-red-200">HIDDEN</span>}
                             </label>
-                            {isLongText ? (
-                              <textarea 
-                                rows={3}
-                                value={val === null ? '' : val} 
-                                onChange={(e) => setEditingData((prev: any) => ({
-                                  ...prev, 
-                                  [key]: e.target.value
-                                }))} 
-                                className="w-full p-4 border border-blue-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white transition resize-y" 
-                                placeholder={`Enter ${key}...`}
-                              />
+                            <div className="flex gap-1 shrink-0">
+                              {isHidden ? (
+                                 <button onClick={() => updateColumnStatus(key, val, 'restore')} className="text-[8px] bg-gray-200 text-gray-600 px-2 py-1 rounded font-black hover:bg-gray-300 transition">RESTORE</button>
+                               ) : (
+                                 <>
+                                   <button onClick={() => updateColumnStatus(key, val, 'promote')} className="text-[8px] bg-blue-600 text-white px-2 py-1 rounded font-black hover:bg-blue-700 shadow-sm transition" title="Add to Form Builder">PROMOTE</button>
+                                   <button onClick={() => updateColumnStatus(key, val, 'hide')} className="text-[8px] bg-red-50 text-red-500 px-2 py-1 rounded font-black hover:bg-red-100 transition">HIDE</button>
+                                 </>
+                               )}
+                            </div>
+                          </div>
+                        );
+
+                        return (
+                          <div key={key} className={`col-span-1 ${isLongText || isObject || isUrl ? 'md:col-span-2' : ''} ${isHidden ? 'opacity-50 grayscale transition-all' : 'transition-all'}`}>
+                            {isObject ? (
+                              <div className="bg-white/50 p-4 rounded-2xl border border-blue-200">
+                                {fieldHeader}
+                                <textarea 
+                                  readOnly
+                                  rows={3}
+                                  value={JSON.stringify(val, null, 2)}
+                                  className="w-full p-4 border border-blue-100 bg-white/80 rounded-xl text-xs font-mono text-gray-500 outline-none resize-y"
+                                  placeholder="Empty JSON"
+                                />
+                              </div>
+                            ) : valueType === 'boolean' ? (
+                              <div className="flex flex-col p-4 bg-white border border-blue-200 rounded-2xl shadow-sm hover:border-blue-400">
+                                {fieldHeader}
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className="text-sm font-black text-gray-700 capitalize">{key.replace(/_/g, ' ')}</span>
+                                  <input 
+                                    type="checkbox"
+                                    checked={val} 
+                                    onChange={(e) => setEditingData((prev: any) => ({
+                                      ...prev, 
+                                      [key]: e.target.checked
+                                    }))} 
+                                    className="w-6 h-6 accent-blue-600 cursor-pointer" 
+                                  />
+                                </div>
+                              </div>
+                            ) : isUrl ? (
+                              <div className="bg-white p-4 rounded-2xl border border-blue-200 shadow-sm">
+                                {fieldHeader}
+                                <img src={val} className="w-full max-h-48 object-cover rounded-xl border border-gray-100 shadow-sm mb-3 bg-gray-50" alt={key} />
+                                <input 
+                                  type="text"
+                                  value={val} 
+                                  onChange={(e) => setEditingData((prev: any) => ({
+                                    ...prev, 
+                                    [key]: e.target.value
+                                  }))} 
+                                  className="w-full p-3 border border-gray-200 rounded-xl font-mono text-gray-600 shadow-inner outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 transition text-xs" 
+                                  placeholder={`Enter image URL for ${key}...`}
+                                />
+                              </div>
+                            ) : isLongText ? (
+                              <div className="bg-transparent">
+                                {fieldHeader}
+                                <textarea 
+                                  rows={3}
+                                  value={val === null ? '' : val} 
+                                  onChange={(e) => setEditingData((prev: any) => ({
+                                    ...prev, 
+                                    [key]: e.target.value
+                                  }))} 
+                                  className="w-full p-4 border border-blue-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white transition resize-y" 
+                                  placeholder={`Enter ${key}...`}
+                                />
+                              </div>
                             ) : (
-                              <input 
-                                type="text"
-                                value={val === null ? '' : val} 
-                                onChange={(e) => setEditingData((prev: any) => ({
-                                  ...prev, 
-                                  [key]: e.target.value
-                                }))} 
-                                className="w-full p-4 border border-blue-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white transition" 
-                                placeholder={`Enter ${key}...`}
-                              />
+                              <div className="bg-transparent">
+                                {fieldHeader}
+                                <input 
+                                  type={valueType === 'number' ? 'number' : 'text'}
+                                  value={val === null ? '' : val} 
+                                  onChange={(e) => setEditingData((prev: any) => ({
+                                    ...prev, 
+                                    [key]: valueType === 'number' ? (e.target.value === '' ? null : Number(e.target.value)) : e.target.value
+                                  }))} 
+                                  className="w-full p-4 border border-blue-200 rounded-2xl font-bold text-gray-800 shadow-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white transition" 
+                                  placeholder={`Enter ${key}...`}
+                                />
+                              </div>
                             )}
                           </div>
                         );
                       })}
                     </div>
                   </section>
-                );
-              })()}
+                ) : null}
 
-              <button onClick={() => saveEdits(editingData)} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-black py-6 rounded-[32px] shadow-2xl hover:shadow-orange-500/20 transition transform hover:-translate-y-1 text-xl mt-8">
-                SAVE ALL CHANGES
-              </button>
+                <button onClick={() => saveEdits(editingData)} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white font-black py-6 rounded-[32px] shadow-2xl hover:shadow-orange-500/20 transition transform hover:-translate-y-1 text-xl mt-8">
+                  SAVE ALL CHANGES
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -87,7 +87,6 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Sync internal preview with passed down value in case form resets
   useEffect(() => {
     if (!currentValue) {
       setPreviewUrl(null);
@@ -238,14 +237,37 @@ export default function RegisterRestaurant() {
 
     const payload: any = { status: 'pending', custom_fields: {}, other_options: selectedEvents };
     
-    Object.keys(formData).forEach(key => {
-      if (key.startsWith('hours_') && key !== 'hours_source') return;
+    for (const key of Object.keys(formData)) {
+      if (key.startsWith('hours_') && key !== 'hours_source') continue;
       
-      // Prevent passing the raw File object to the Postgres text column
-      if (key === 'image_url' && formData[key] instanceof File) {
-        // Here is where you would upload formData[key] to Supabase Storage
-        // and assign the public URL string to payload[key].
-        return; 
+      if (formData[key] instanceof File) {
+        const file = formData[key];
+        const fileExt = file.name.split('.').pop();
+        const fileName = `public-upload-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+        
+        try {
+          const { error: uploadError } = await supabase.storage
+            .from('restaurant-images')
+            .upload(fileName, file);
+            
+          if (uploadError) throw uploadError;
+          
+          const { data: publicData } = supabase.storage
+            .from('restaurant-images')
+            .getPublicUrl(fileName);
+          
+          if (key.startsWith('custom_fields.')) {
+            payload.custom_fields[key.replace('custom_fields.', '')] = publicData.publicUrl;
+          } else {
+            payload[key] = publicData.publicUrl;
+          }
+        } catch (uploadErr: any) {
+          console.error("Image upload failed:", uploadErr);
+          setMessage(`Error uploading image: ${uploadErr.message}`);
+          setLoading(false);
+          return;
+        }
+        continue;
       }
 
       if (key.startsWith('custom_fields.')) {
@@ -253,9 +275,8 @@ export default function RegisterRestaurant() {
       } else {
         payload[key] = formData[key];
       }
-    });
+    }
 
-    // Compile hours string based on the answer mapping
     let finalHours = '';
     const hSource = formData['hours_source'];
     if (hSource === 'ここで手動で入力する') {
@@ -272,7 +293,7 @@ export default function RegisterRestaurant() {
 
     setLoading(false);
     if (error) {
-      setMessage(`エラーが発生しました: ${error.message}`);
+      setMessage(`Error occurred: ${error.message}`);
     } else {
       setMessage('情報の送信が完了しました！ご協力誠にありがとうございます。');
       setFormData({ hours_source: 'Googleマップと同じ' });
@@ -281,9 +302,7 @@ export default function RegisterRestaurant() {
     }
   };
 
-  // --- RECURSIVE FORM RENDERER ---
   const renderFormBlock = (block: any) => {
-    // Check if any conditions match the current form state to render sub-elements
     const activeCondition = block.conditions?.find((c: any) => {
       const val = formData[block.dbColumn];
       if (Array.isArray(val)) return val.includes(c.triggerValue);
@@ -292,7 +311,6 @@ export default function RegisterRestaurant() {
 
     return (
       <div key={block.id} className="animate-in fade-in duration-300">
-        {/* BIG CARDS: HOURS SOURCE */}
         {block.type === 'hours_source' && (
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-500">*</span>}</label>
@@ -309,7 +327,6 @@ export default function RegisterRestaurant() {
           </div>
         )}
 
-        {/* 7-DAY GRID: OPERATING HOURS */}
         {block.type === 'operating_hours' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-2xl border border-gray-200">
             <p className="md:col-span-2 text-sm text-gray-500 mb-2 font-medium">※ 定休日の場合は未記入、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。</p>
@@ -322,7 +339,6 @@ export default function RegisterRestaurant() {
           </div>
         )}
 
-        {/* BIG CARDS: PHOTO METHOD */}
         {block.type === 'photo_method' && (
           <div>
             <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-500">*</span>}</label>
@@ -343,7 +359,6 @@ export default function RegisterRestaurant() {
           </div>
         )}
 
-        {/* STANDARD RENDERS */}
         {!['hours_source', 'operating_hours', 'photo_method'].includes(block.type) && (
           <div>
             {block.type !== 'html' && (
@@ -387,7 +402,6 @@ export default function RegisterRestaurant() {
           </div>
         )}
 
-        {/* RECURSIVE CONDITIONAL CHILDREN RENDER */}
         {activeCondition && activeCondition.blocks?.length > 0 && (
            <div className="mt-6 ml-4 md:ml-6 pl-4 md:pl-6 border-l-[3px] border-orange-300 space-y-8 relative">
               {activeCondition.blocks.map((childBlock: any) => renderFormBlock(childBlock))}
@@ -401,7 +415,6 @@ export default function RegisterRestaurant() {
 
   return (
     <div className="w-full relative">
-      {/* AD STUDIO LAYER */}
       {mounted && !isIframe && createPortal(
         <>
           <div className="hidden lg:block absolute top-0 left-1/2 transform -translate-x-1/2 w-[1600px] h-0 z-40 pointer-events-none">
@@ -427,7 +440,6 @@ export default function RegisterRestaurant() {
         document.body
       )}
 
-      {/* MAIN CONTENT */}
       <div className="max-w-4xl mx-auto py-8 px-4 relative z-10">
         
         <div className="bg-gradient-to-r from-orange-600 to-orange-500 rounded-3xl p-8 md:p-12 text-white shadow-lg mb-8">
@@ -436,7 +448,7 @@ export default function RegisterRestaurant() {
         </div>
 
         {message && (
-          <div className={`p-5 mb-8 rounded-2xl font-bold text-center shadow-sm ${message.includes('エラー') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-800 border border-green-200'}`}>
+          <div className={`p-5 mb-8 rounded-2xl font-bold text-center shadow-sm ${message.includes('エラー') || message.includes('Error') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-800 border border-green-200'}`}>
             {message}
           </div>
         )}
@@ -453,7 +465,6 @@ export default function RegisterRestaurant() {
                 </div>
               </section>
 
-              {/* EVENTS INJECTION */}
               {index === 0 && activeEvents.length > 0 && (
                 <section className="p-8 md:p-10 bg-purple-50 border border-purple-100 rounded-[32px] space-y-6">
                   <div className="mb-2">
