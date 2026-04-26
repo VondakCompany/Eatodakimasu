@@ -545,26 +545,6 @@ export default function Home() {
                 </div>
 
                 <div className="mb-8">
-                  <label className="block text-xs font-bold text-gray-400 mb-3 uppercase">{t('filter_stay_time', '平均滞在時間')}</label>
-                  <div className="flex flex-wrap gap-2">
-                    {[
-                      { id: '~15分', label: t('stay_15', '〜15分') },
-                      { id: '15分~30分', label: t('stay_15_30', '15分〜30分') },
-                      { id: '30分~1時間', label: t('stay_30_60', '30分〜1時間') },
-                      { id: '1時間以上', label: t('stay_60_plus', '1時間以上') }
-                    ].map(opt => (
-                      <button
-                        key={opt.id}
-                        onClick={() => setStayDuration(stayDuration === opt.id ? '' : opt.id)}
-                        className={`px-3 py-2 lg:py-1.5 rounded-lg text-sm lg:text-xs font-bold border transition ${stayDuration === opt.id ? 'bg-orange-600 text-white border-orange-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="mb-8">
                   <div className="flex justify-between items-center mb-4">
                     <label className="block text-xs font-bold text-gray-400 uppercase">{t('filter_budget', '予算')}</label>
                     <span className="text-orange-600 font-black text-sm bg-orange-50 px-2 py-1 rounded-md">{price === 3000 ? t('price_no_limit', '制限なし') : t('price_under_amount', '¥{{price}} 以下', { price: price })}</span>
