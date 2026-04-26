@@ -437,6 +437,11 @@ export default function Home() {
                 alt="Okuma Auditorium sketch" 
                 className="absolute left-full md:translate-x-[-110px] md:translate-y-[20px] translate-x-[-60px] translate-y-[8px] h-20 md:h-36 object-contain pointer-events-none"
               />
+              <img 
+                src="/eato-statue-trans.png" 
+                alt="Hungry Okuma Statue sketch" 
+                className="absolute left-full md:translate-x-[-500px] md:translate-y-[20px] translate-x-[-320px] translate-y-[8px] h-20 md:h-36 object-contain pointer-events-none"
+              />
             </div>
           </div>
           
