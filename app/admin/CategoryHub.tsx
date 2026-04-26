@@ -44,7 +44,10 @@ function FilterRow({ filter, updateBaseTagName, deleteMasterFilter }: any) {
         className={`text-sm font-black text-gray-800 bg-transparent outline-none border-b border-transparent focus:border-orange-300 w-4/5 transition-opacity ${isSaving ? 'opacity-40 cursor-wait' : 'opacity-100'}`}
       />
       <button 
-        onClick={() => deleteMasterFilter(filter.id, filter.name, filter.type)} 
+        onMouseDown={(e) => {
+          e.preventDefault();
+          deleteMasterFilter(filter.id, filter.name, filter.type);
+        }} 
         disabled={isSaving}
         className="text-gray-200 hover:text-red-500 opacity-0 group-hover:opacity-100 transition disabled:opacity-0"
       >
@@ -250,7 +253,7 @@ export default function CategoryHub({
                 <span className="font-black text-xl text-gray-900">{cat.name}</span>
                 <div className="flex gap-3">
                   <button onClick={() => openManageCategory(cat.name)} className="bg-purple-600 flex items-center gap-1.5 text-white px-5 py-2 rounded-xl font-bold text-xs shadow-md"><Icons.Users className="w-4 h-4" /> Participants</button>
-                  <button onClick={() => deleteCategory(cat.id, cat.name)} className="text-red-400 font-bold text-xs px-3 hover:bg-red-50 rounded-lg transition">Delete</button>
+                  <button onMouseDown={(e) => { e.preventDefault(); deleteCategory(cat.id, cat.name); }} className="text-red-400 font-bold text-xs px-3 hover:bg-red-50 rounded-lg transition">Delete</button>
                 </div>
               </div>
               
@@ -349,7 +352,10 @@ export default function CategoryHub({
                   <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest">{type}s</h3>
                   {!isBaseType && (
                     <button 
-                      onClick={() => deleteMasterFilterCategory(type)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        deleteMasterFilterCategory(type);
+                      }}
                       className="text-[10px] font-bold text-red-400 bg-red-50 px-2 py-1 rounded-md hover:bg-red-100 hover:text-red-600 transition opacity-0 group-hover:opacity-100"
                     >
                       Delete Category
