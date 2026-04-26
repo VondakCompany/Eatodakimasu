@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
 
-// Same updated BASELINE_SCHEMA as the editor...
 const BASELINE_SCHEMA = {
   pageTitle: "ワセメシ情報ご提供のお願い",
   pageDescription: "私たちは早稲田大学国際教養学部の「イートチーム」と申します。\n「ワセメシ」の魅力をもっと多くの方に知っていただき、地域のお店と学生・観光客をつなぐ多言語対応のレストラン検索サイト「イートダキマス」を作成しています。\n\n✅ 掲載はすべて無料です\n✅ 頂いた情報を元に、こちらで多言語（英語等）に翻訳して掲載します\n✅ 所要時間は5〜10分程度です",
@@ -76,11 +75,97 @@ const BASELINE_SCHEMA = {
       description: "",
       blocks: [
         { id: "b_pmethod", type: "photo_method", label: "店舗やメニューの写真のご提供方法をお選びください", dbColumn: "photo_method", required: true, options: ["後でメールで送る", "店舗HPの写真を使用する", "スタッフに撮影を依頼する"] },
-        { id: "b_notes", type: "textarea", label: "その他ご質問・ご要望", dbColumn: "admin_notes", required: false, placeholder: "ご不明点があればご自由にご記入ください。" }
+        { id: "b_notes", type: "textarea", label: "その他ご質問・ご要望", dbColumn: "admin_notes", required: false, placeholder: "ご不明点があればご自由にご記入ください。" },
+        { id: "b_image", type: "image_upload", label: "写真をアップロード・撮る", dbColumn: "image_url", required: false, placeholder: "複数枚ある場合は、代表的な1枚をお願いします" }
       ]
     }
   ]
 };
+
+// --- NEW PUBLIC COMPONENT: Interactive Image Uploader ---
+const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (file: File | null) => void, currentValue: File | null }) => {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Sync internal preview with passed down value in case form resets
+  useEffect(() => {
+    if (!currentValue) {
+      setPreviewUrl(null);
+    } else if (currentValue instanceof File) {
+      setPreviewUrl(URL.createObjectURL(currentValue));
+    }
+  }, [currentValue]);
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+      onImageSelected(file);
+    }
+  };
+
+  const clearSelection = () => {
+    setPreviewUrl(null);
+    onImageSelected(null);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  };
+
+  return (
+    <div className="mt-2 w-full animate-in fade-in duration-300">
+      <input
+        type="file"
+        accept="image/*"
+        onChange={handleFileChange}
+        ref={fileInputRef}
+        className="hidden"
+      />
+      
+      {previewUrl ? (
+        <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
+          <img 
+            src={previewUrl} 
+            alt="Upload preview" 
+            className="w-full sm:w-48 h-auto object-contain rounded-xl border border-gray-300 shadow-sm bg-white" 
+          />
+          <div className="flex flex-col gap-2 w-full sm:w-auto">
+            <button 
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="text-sm font-bold bg-white border border-gray-300 text-gray-700 px-5 py-2.5 rounded-xl hover:bg-gray-100 transition shadow-sm whitespace-nowrap"
+            >
+              写真を変更する (Change Photo)
+            </button>
+            <button 
+              type="button"
+              onClick={clearSelection}
+              className="text-sm font-bold text-red-600 hover:bg-red-50 px-5 py-2.5 rounded-xl transition whitespace-nowrap"
+            >
+              削除 (Remove)
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          className="w-full py-12 px-4 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50 hover:bg-white hover:border-orange-400 hover:shadow-md transition-all group text-gray-500"
+        >
+          <div className="bg-white p-3 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
+            <svg className="w-8 h-8 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+            </svg>
+          </div>
+          <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">ここをタップしてアップロードまたは撮影</span>
+          {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
+        </button>
+      )}
+    </div>
+  );
+};
+// ----------------------------------------------
+
 
 export default function RegisterRestaurant() {
   const [schema, setSchema] = useState<any>(null);
@@ -155,6 +240,14 @@ export default function RegisterRestaurant() {
     
     Object.keys(formData).forEach(key => {
       if (key.startsWith('hours_') && key !== 'hours_source') return;
+      
+      // Prevent passing the raw File object to the Postgres text column
+      if (key === 'image_url' && formData[key] instanceof File) {
+        // Here is where you would upload formData[key] to Supabase Storage
+        // and assign the public URL string to payload[key].
+        return; 
+      }
+
       if (key.startsWith('custom_fields.')) {
         payload.custom_fields[key.replace('custom_fields.', '')] = formData[key];
       } else {
@@ -282,6 +375,14 @@ export default function RegisterRestaurant() {
                   )
                 })}
               </div>
+            )}
+
+            {block.type === 'image_upload' && (
+              <PublicImageUploader 
+                block={block} 
+                currentValue={formData[block.dbColumn]}
+                onImageSelected={(file) => handleInputChange(block.dbColumn, file)}
+              />
             )}
           </div>
         )}

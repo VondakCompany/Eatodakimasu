@@ -1,9 +1,9 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 
-type BlockType = 'text' | 'textarea' | 'select' | 'checkbox' | 'radio' | 'html' | 'hours_source' | 'operating_hours' | 'photo_method';
+type BlockType = 'text' | 'textarea' | 'select' | 'checkbox' | 'radio' | 'html' | 'hours_source' | 'operating_hours' | 'photo_method' | 'image_upload';
 
 interface FormCondition {
   triggerValue: string;
@@ -55,6 +55,7 @@ const BASE_COLUMNS = [
   { id: 'takeout_menu', label: 'テイクアウトメニュー (Takeout Menu)', dataType: 'string' },
   { id: 'operating_hours', label: '営業時間 (Operating Hours)', dataType: 'string' },
   { id: 'hours_source', label: '営業時間ソース (Hours Source)', dataType: 'string' },
+  { id: 'image_url', label: '店舗画像 (Main Image URL)', dataType: 'string' },
   { id: 'contact_name', label: '担当者名 (Contact Name) - PRIVATE', dataType: 'string' },
   { id: 'contact_phone', label: '電話番号 (Contact Phone) - PRIVATE', dataType: 'string' },
   { id: 'contact_email', label: 'メールアドレス (Contact Email) - PRIVATE', dataType: 'string' },
@@ -81,6 +82,78 @@ const BASELINE_SCHEMA: FormSchema = {
   ]
 };
 
+// --- NEW COMPONENT: Interactive Image Picker ---
+const ImagePickerBlock: React.FC<{ block: FormBlock; isEditing: boolean; onClick: () => void }> = ({ block, isEditing, onClick }) => {
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file && file.type.startsWith('image/')) {
+      const url = URL.createObjectURL(file);
+      setPreviewUrl(url);
+    }
+  };
+
+  const triggerPicker = (e: React.MouseEvent) => {
+    e.stopPropagation(); // Prevents the click from just selecting the block
+    onClick();           // Selects the block in the editor properties
+    fileInputRef.current?.click(); // Opens the file picker
+  };
+
+  return (
+    <div onClick={onClick} className={`bg-white p-5 rounded-2xl border-2 transition cursor-pointer ${isEditing ? 'border-orange-500 shadow-md ring-4 ring-orange-50 scale-[1.01] z-20 relative' : 'border-gray-200 hover:border-gray-300'}`}>
+      <div className="flex justify-between items-start">
+        <div className="flex-1 w-full">
+          <label className="block text-sm font-bold text-gray-700 mb-2 pointer-events-none">
+            {block.label} {block.required && <span className="text-red-500">*</span>}
+          </label>
+
+          <div className="w-full flex flex-col items-center justify-center py-6 border-2 border-dashed border-gray-300 rounded-xl bg-gray-50/50 text-gray-600 gap-3">
+            {/* Hidden Input */}
+            <input
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+            />
+
+            {previewUrl ? (
+              <div className="flex flex-col items-center gap-2 w-full px-4">
+                <img 
+                  src={previewUrl} 
+                  alt="Preview" 
+                  className="max-h-48 rounded-lg border shadow-sm object-contain bg-white" 
+                />
+                <button 
+                  onClick={triggerPicker} 
+                  className="mt-2 text-xs font-bold bg-white border border-gray-300 px-4 py-2 rounded-lg hover:bg-gray-50 shadow-sm transition w-fit"
+                >
+                  Change Photo
+                </button>
+              </div>
+            ) : (
+              <div className="flex flex-col items-center gap-2 cursor-pointer w-full h-full" onClick={triggerPicker}>
+                <svg className="w-8 h-8 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                <span className="text-sm font-bold text-blue-600 hover:underline pointer-events-none">Tap to Upload or Take Photo</span>
+                {block.placeholder && <span className="text-xs text-gray-400 pointer-events-none">{block.placeholder}</span>}
+              </div>
+            )}
+          </div>
+        </div>
+        <span className="text-[10px] font-black bg-gray-100 text-gray-400 px-2 py-1 rounded uppercase ml-4 flex-shrink-0 pointer-events-none">{block.type}</span>
+      </div>
+    </div>
+  );
+};
+// ----------------------------------------------
+
+
 export default function RegistrationEditor() {
   const [schema, setSchema] = useState<FormSchema | null>(null);
   const [history, setHistory] = useState<VersionHistory[]>([]);
@@ -101,57 +174,75 @@ export default function RegistrationEditor() {
     blockId?: string;
   } | null>(null);
 
+  // Refs for Section Dragging
   const dragSectionItem = useRef<number | null>(null);
   const dragSectionOverItem = useRef<number | null>(null);
 
-  useEffect(() => { fetchConfig(); }, []);
+  // Refs for Block Dragging
+  const dragBlockItem = useRef<{ sectionId: string; index: number } | null>(null);
+  const dragBlockOverItem = useRef<{ sectionId: string; index: number } | null>(null);
+
+  useEffect(() => { 
+    fetchConfig(); 
+  }, []);
 
   const fetchConfig = async () => {
-    const [schemaRes, historyRes, filtersRes, catsRes] = await Promise.all([
-      supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle(),
-      supabase.from('site_settings').select('data').eq('id', 'registration_schema_history').maybeSingle(),
-      supabase.from('filter_options').select('type, name'),
-      supabase.from('custom_categories').select('name')
-    ]);
+    try {
+      const [schemaRes, historyRes, filtersRes, catsRes] = await Promise.all([
+        supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle(),
+        supabase.from('site_settings').select('data').eq('id', 'registration_schema_history').maybeSingle(),
+        supabase.from('filter_options').select('type, name'),
+        supabase.from('custom_categories').select('name')
+      ]);
 
-    if (schemaRes.data && schemaRes.data.data.sections?.length > 0) {
-      setSchema(schemaRes.data.data);
-    } else {
-      setSchema(BASELINE_SCHEMA); 
-    }
+      if (schemaRes.data?.data?.sections?.length > 0) {
+        setSchema(schemaRes.data.data);
+      } else {
+        setSchema(BASELINE_SCHEMA); 
+      }
 
-    if (historyRes.data?.data?.versions) {
-      setHistory(historyRes.data.data.versions);
-    }
+      if (historyRes.data?.data?.versions) {
+        setHistory(historyRes.data.data.versions);
+      }
 
-    const dynCols: {id: string, label: string, category: string, dataType: string}[] = [];
-    if (filtersRes.data) {
-      const types = Array.from(new Set(filtersRes.data.map(f => f.type)));
-      // Master filter tags map to text arrays in Supabase
-      types.forEach(t => dynCols.push({ id: t, label: `Tag Group: ${t.toUpperCase()}`, category: 'Master Tags', dataType: 'array' }));
-    }
-    if (catsRes.data) {
-      // Event categories map to the other_options text array in Supabase
-      dynCols.push({ id: 'other_options', label: 'Event Hub Categories (other_options)', category: 'Events', dataType: 'array' });
-    }
-    setDynamicColumns(dynCols);
+      const dynCols: {id: string, label: string, category: string, dataType: string}[] = [];
+      if (filtersRes.data) {
+        const types = Array.from(new Set(filtersRes.data.map(f => f.type)));
+        types.forEach(t => dynCols.push({ id: t, label: `Tag Group: ${t.toUpperCase()}`, category: 'Master Tags', dataType: 'array' }));
+      }
+      if (catsRes.data) {
+        dynCols.push({ id: 'other_options', label: 'Event Hub Categories (other_options)', category: 'Events', dataType: 'array' });
+      }
+      setDynamicColumns(dynCols);
 
-    setLoading(false);
+    } catch (error) {
+      console.error("Failed to load schema configuration:", error);
+      if (!schema) setSchema(BASELINE_SCHEMA);
+    } finally {
+      setLoading(false);
+    }
   };
 
   const saveConfig = async () => {
+    if (!schema) return;
     setSaving(true);
-    const newVersion: VersionHistory = { timestamp: new Date().toISOString(), schema: schema! };
+    const newVersion: VersionHistory = { timestamp: new Date().toISOString(), schema };
     const updatedHistory = [newVersion, ...history].slice(0, 15);
     
-    await Promise.all([
-      supabase.from('site_settings').upsert({ id: 'registration_schema', data: schema }),
-      supabase.from('site_settings').upsert({ id: 'registration_schema_history', data: { versions: updatedHistory } })
-    ]);
+    try {
+      await Promise.all([
+        supabase.from('site_settings').upsert({ id: 'registration_schema', data: schema }),
+        supabase.from('site_settings').upsert({ id: 'registration_schema_history', data: { versions: updatedHistory } })
+      ]);
 
-    setHistory(updatedHistory);
-    setSaving(false);
-    alert('Form Schema Saved Successfully!');
+      setHistory(updatedHistory);
+      alert('Form Schema Saved Successfully!');
+    } catch (error) {
+      console.error("Failed to save schema:", error);
+      alert('Failed to save schema. Please check the console for details.');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const restoreVersion = (archivedSchema: FormSchema) => {
@@ -234,7 +325,7 @@ export default function RegistrationEditor() {
     setSchema({ ...schema, sections: schema.sections.map(s => s.id === id ? { ...s, [key]: value } : s) });
   };
 
-  const handleSort = () => {
+  const handleSectionSort = () => {
     if (!schema || dragSectionItem.current === null || dragSectionOverItem.current === null) return;
     const sections = [...schema.sections];
     const draggedItemContent = sections.splice(dragSectionItem.current, 1)[0];
@@ -244,8 +335,33 @@ export default function RegistrationEditor() {
     setSchema({ ...schema, sections });
   };
 
+  const handleBlockSort = (e: React.DragEvent, sectionId: string) => {
+    e.stopPropagation(); 
+    if (!schema || !dragBlockItem.current || !dragBlockOverItem.current) return;
+    
+    // Only allow reordering within the same section to keep data models safe
+    if (dragBlockItem.current.sectionId !== dragBlockOverItem.current.sectionId) return;
+
+    const targetSectionId = dragBlockItem.current.sectionId;
+    const sectionIndex = schema.sections.findIndex(s => s.id === targetSectionId);
+    if (sectionIndex === -1) return;
+
+    const newSections = [...schema.sections];
+    const blocks = [...newSections[sectionIndex].blocks];
+
+    const draggedItemContent = blocks.splice(dragBlockItem.current.index, 1)[0];
+    blocks.splice(dragBlockOverItem.current.index, 0, draggedItemContent);
+
+    newSections[sectionIndex] = { ...newSections[sectionIndex], blocks };
+
+    setSchema({ ...schema, sections: newSections });
+
+    dragBlockItem.current = null;
+    dragBlockOverItem.current = null;
+  };
+
   const createNewBlock = (type: BlockType): FormBlock => ({
-    id: generateId(), type, label: `New ${type}`, required: false, dbColumn: `custom_fields.${generateId()}`,
+    id: generateId(), type, label: `New ${type}`, required: false, dbColumn: type === 'image_upload' ? 'image_url' : `custom_fields.${generateId()}`,
     options: ['Option 1', 'Option 2'], content: '<p>Edit your text here.</p>', isPublicCustomField: true
   });
 
@@ -307,10 +423,78 @@ export default function RegistrationEditor() {
     });
   };
 
-  const renderCanvasBlock = (block: FormBlock, sectionId: string) => {
+  const renderCanvasBlock = (block: FormBlock, sectionId: string, index: number = -1, isNested: boolean = false) => {
     const isEditing = editingBlock?.blockId === block.id;
+
+    // Delegate to specific picker if it's an image upload
+    if (block.type === 'image_upload') {
+      return (
+        <div 
+          key={block.id} 
+          className={`mb-3 relative ${!isNested ? 'group' : ''}`}
+          draggable={!isNested}
+          onDragStart={(e) => {
+            if (!isNested && index !== -1) {
+              e.stopPropagation();
+              dragBlockItem.current = { sectionId, index };
+            }
+          }}
+          onDragEnter={(e) => {
+            if (!isNested && index !== -1) {
+              e.stopPropagation();
+              dragBlockOverItem.current = { sectionId, index };
+            }
+          }}
+          onDragEnd={(e) => {
+            if (!isNested) handleBlockSort(e, sectionId);
+          }}
+          onDragOver={(e) => e.preventDefault()}
+        >
+          {!isNested && (
+            <div className="absolute top-1/2 -left-4 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-move text-gray-300 hover:text-orange-500 z-30 p-1 font-black transition-opacity" title="Drag to reorder block">
+              ⋮⋮
+            </div>
+          )}
+          <ImagePickerBlock 
+            block={block} 
+            isEditing={isEditing} 
+            onClick={() => { setEditingBlock({ sectionId, blockId: block.id }); setIsSidebarOpen(true); }} 
+          />
+        </div>
+      );
+    }
+
     return (
-      <div key={block.id} className="mb-3">
+      <div 
+        key={block.id} 
+        className={`mb-3 relative ${!isNested ? 'group' : ''}`}
+        draggable={!isNested}
+        onDragStart={(e) => {
+          if (!isNested && index !== -1) {
+            e.stopPropagation();
+            dragBlockItem.current = { sectionId, index };
+          }
+        }}
+        onDragEnter={(e) => {
+          if (!isNested && index !== -1) {
+            e.stopPropagation();
+            dragBlockOverItem.current = { sectionId, index };
+          }
+        }}
+        onDragEnd={(e) => {
+          if (!isNested) {
+            handleBlockSort(e, sectionId);
+          }
+        }}
+        onDragOver={(e) => e.preventDefault()}
+      >
+        {/* Block Drag Handle Indicator */}
+        {!isNested && (
+          <div className="absolute top-1/2 -left-4 transform -translate-y-1/2 opacity-0 group-hover:opacity-100 cursor-move text-gray-300 hover:text-orange-500 z-30 p-1 font-black transition-opacity" title="Drag to reorder block">
+            ⋮⋮
+          </div>
+        )}
+
         <div onClick={() => { setEditingBlock({ sectionId, blockId: block.id }); setIsSidebarOpen(true); }} className={`bg-white p-5 rounded-2xl border-2 transition cursor-pointer ${isEditing ? 'border-orange-500 shadow-md ring-4 ring-orange-50 scale-[1.01] z-20 relative' : 'border-gray-200 hover:border-gray-300'}`}>
           <div className="flex justify-between items-start pointer-events-none">
             <div className="flex-1 w-full">
@@ -336,11 +520,13 @@ export default function RegistrationEditor() {
               {block.type === 'text' && <div className="h-10 bg-gray-50 border border-gray-100 rounded-lg w-full px-3 flex items-center text-gray-400 text-sm">{block.placeholder || ''}</div>}
               {block.type === 'textarea' && <div className="h-20 bg-gray-50 border border-gray-100 rounded-lg w-full p-3 text-gray-400 text-sm">{block.placeholder || ''}</div>}
               {block.type === 'select' && <div className="h-10 bg-gray-50 border border-gray-100 rounded-lg w-full flex items-center px-3 text-gray-400 text-sm">Dropdown...</div>}
+              
               {(block.type === 'checkbox' || block.type === 'radio' || block.type === 'photo_method') && (
                  <div className="flex flex-wrap gap-2 mt-2">
                    {block.options?.map((opt, i) => <div key={i} className="px-3 py-1.5 bg-white border border-gray-200 text-gray-600 text-xs rounded-lg font-bold shadow-sm">{opt}</div>)}
                  </div>
               )}
+              
               {block.type === 'html' && <div className="prose prose-sm text-gray-500 bg-amber-50 p-3 rounded-lg border border-amber-100" dangerouslySetInnerHTML={{ __html: block.content || '' }} />}
             </div>
             <span className="text-[10px] font-black bg-gray-100 text-gray-400 px-2 py-1 rounded uppercase ml-4 flex-shrink-0">{block.type}</span>
@@ -350,7 +536,7 @@ export default function RegistrationEditor() {
         {block.conditions?.map(cond => (
           <div key={cond.triggerValue} className="mt-3 ml-6 pl-4 border-l-4 border-purple-300 relative bg-purple-50/30 rounded-r-2xl py-2">
              <span className="absolute -left-3 top-4 bg-purple-600 text-white shadow-sm text-[10px] font-black px-2 py-0.5 rounded-full">IF: {cond.triggerValue}</span>
-             {cond.blocks.map(child => renderCanvasBlock(child, sectionId))}
+             {cond.blocks.map((child, childIdx) => renderCanvasBlock(child, sectionId, childIdx, true))}
           </div>
         ))}
       </div>
@@ -409,7 +595,6 @@ export default function RegistrationEditor() {
 
     const isCustomField = local.dbColumn.startsWith('custom_fields.');
     
-    // Determine the expected data output type based on the block type
     const blockExpectedType = block.type === 'checkbox' ? 'array' : 'string';
 
     return (
@@ -425,10 +610,20 @@ export default function RegistrationEditor() {
               <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Display Label</label>
               <input type="text" value={local.label} onChange={e => setLocal({...local, label: e.target.value})} onBlur={handleBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-bold outline-none focus:ring-2 focus:ring-orange-500" />
             </div>
-            <div>
-              <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Placeholder</label>
-              <input type="text" value={local.placeholder || ''} onChange={e => setLocal({...local, placeholder: e.target.value})} onBlur={handleBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-medium outline-none focus:ring-2 focus:ring-orange-500" />
-            </div>
+            
+            {block.type !== 'image_upload' && (
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Placeholder</label>
+                <input type="text" value={local.placeholder || ''} onChange={e => setLocal({...local, placeholder: e.target.value})} onBlur={handleBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-medium outline-none focus:ring-2 focus:ring-orange-500" />
+              </div>
+            )}
+
+            {block.type === 'image_upload' && (
+              <div>
+                <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Help Text / Hint</label>
+                <input type="text" value={local.placeholder || ''} onChange={e => setLocal({...local, placeholder: e.target.value})} onBlur={handleBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-medium outline-none focus:ring-2 focus:ring-orange-500" placeholder="e.g. Max file size: 5MB" />
+              </div>
+            )}
             
             {block.type === 'text' && (
               <div>
@@ -572,7 +767,8 @@ export default function RegistrationEditor() {
     );
   };
 
-  if (loading || !schema) return <div className="p-10 font-bold text-gray-500 animate-pulse">Loading Builder Engine...</div>;
+  if (loading) return <div className="p-10 font-bold text-gray-500 animate-pulse">Loading Builder Engine...</div>;
+  if (!schema) return <div className="p-10 font-bold text-red-500">Error loading builder. Please refresh the page.</div>;
 
   const getViewportWidth = () => {
     if (viewport === 'mobile') return 'max-w-md';
@@ -613,17 +809,17 @@ export default function RegistrationEditor() {
           </div>
 
           {schema.sections.map((section, index) => (
-            <div key={section.id} draggable onDragStart={() => (dragSectionItem.current = index)} onDragEnter={() => (dragSectionOverItem.current = index)} onDragEnd={handleSort} className="bg-white p-6 rounded-[32px] border-2 border-transparent hover:border-orange-200 shadow-sm transition relative group cursor-move z-10">
+            <div key={section.id} draggable onDragStart={(e) => { dragSectionItem.current = index; }} onDragEnter={() => (dragSectionOverItem.current = index)} onDragEnd={handleSectionSort} className="bg-white p-6 rounded-[32px] border-2 border-transparent hover:border-orange-200 shadow-sm transition relative group z-10">
               <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition flex gap-2">
-                <span className="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-1 rounded-full border border-gray-200">Drag to reorder</span>
+                <span className="text-xs font-bold text-gray-400 bg-gray-50 px-3 py-1 rounded-full border border-gray-200 cursor-move">Drag to reorder section</span>
                 <button onClick={() => setPendingDelete({ type: 'section', sectionId: section.id })} className="bg-red-100 text-red-600 w-8 h-8 rounded-full font-bold flex items-center justify-center hover:bg-red-200">✕</button>
               </div>
 
               <input type="text" value={section.title} onChange={e => updateSection(section.id, 'title', e.target.value)} className="w-full text-2xl font-black bg-transparent outline-none mb-2 text-gray-900" placeholder="Section Title" />
               <input type="text" value={section.description} onChange={e => updateSection(section.id, 'description', e.target.value)} className="w-full text-sm font-bold bg-transparent outline-none mb-6 text-gray-500" placeholder="Section Description (Optional)" />
 
-              <div className="cursor-default" onDragStart={e => e.stopPropagation()} draggable={false}>
-                {section.blocks.map(block => renderCanvasBlock(block, section.id))}
+              <div className="mt-6">
+                {section.blocks.map((block, idx) => renderCanvasBlock(block, section.id, idx))}
               </div>
 
               <div className="mt-6 flex flex-wrap gap-2 border-t border-gray-200 pt-4 cursor-default">
@@ -636,6 +832,7 @@ export default function RegistrationEditor() {
                 <button onClick={() => addBlockToSection(section.id, 'html')} className="text-xs font-bold bg-amber-50 border border-amber-200 text-amber-700 px-3 py-1.5 rounded-lg hover:bg-amber-100 transition">+ HTML Block</button>
                 
                 <span className="text-xs font-bold text-gray-400 py-1 ml-4 mr-2 border-l pl-4">Custom UI:</span>
+                <button onClick={() => addBlockToSection(section.id, 'image_upload')} className="text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition">+ Image/Camera</button>
                 <button onClick={() => addBlockToSection(section.id, 'hours_source')} className="text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition">+ Hours Toggle</button>
                 <button onClick={() => addBlockToSection(section.id, 'operating_hours')} className="text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition">+ 7-Day Grid</button>
                 <button onClick={() => addBlockToSection(section.id, 'photo_method')} className="text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition">+ Photo Cards</button>
