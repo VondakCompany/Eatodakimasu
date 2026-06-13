@@ -1,9 +1,11 @@
-// /app/admin/RegistrationEditor.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
+
+// SECURE: Explicitly excluding contact_name, contact_phone, contact_email, admin_notes, and photo_method
+const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options';
 
 type BlockType = 'text' | 'textarea' | 'select' | 'checkbox' | 'radio' | 'html' | 'hours_source' | 'operating_hours' | 'photo_method' | 'image_upload';
 
@@ -56,7 +58,7 @@ const BASELINE_SCHEMA: FormSchema = {
       title: "1. 写真",
       description: "",
       blocks: [
-        { id: "b_image", type: "image_upload", label: "店舗やメニューの写真をアップロードしてください", dbColumn: "image_url", required: true, placeholder: "複数枚ある場合は、代表的な1枚をお願いします" }
+        { id: "b_image", type: "image_upload", label: "店舗やメニューの写真をアップロードしてください", dbColumn: "image_url", required: true, placeholder: "複数枚ある場合は、代表的な1枚をお願いします", maxImages: 1 }
       ]
     },
     {
@@ -152,7 +154,6 @@ const ImagePickerBlock: React.FC<{ block: FormBlock; isEditing: boolean; onClick
             <input
               type="file"
               accept="image/*"
-              capture="environment"
               onChange={handleFileChange}
               ref={fileInputRef}
               style={{ display: 'none' }}
@@ -175,7 +176,7 @@ const ImagePickerBlock: React.FC<{ block: FormBlock; isEditing: boolean; onClick
             ) : (
               <div className="flex flex-col items-center gap-2 cursor-pointer w-full h-full" onClick={triggerPicker}>
                 <svg className="w-8 h-8 text-gray-400 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
                 </svg>
                 <span className="text-sm font-bold text-blue-600 hover:underline pointer-events-none">Tap to Upload or Take Photo</span>
@@ -191,7 +192,7 @@ const ImagePickerBlock: React.FC<{ block: FormBlock; isEditing: boolean; onClick
 };
 
 const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (files: File | File[] | null) => void, currentValue: any }) => {
-  const [previews, setPreviews] = useState<{file: File, url: string}[]>([]);
+  const [previews, setPreviews] = useState<{file?: File, url: string}[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   
   const maxLimit = block.maxImages || 1;
@@ -202,8 +203,21 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
       setPreviews([]);
     } else if (currentValue instanceof File) {
       setPreviews([{ file: currentValue, url: URL.createObjectURL(currentValue) }]);
+    } else if (typeof currentValue === 'string' && currentValue.startsWith('http')) {
+      // Single URL string from DB
+      setPreviews([{ url: currentValue }]);
     } else if (Array.isArray(currentValue)) {
-      setPreviews(currentValue.map(f => ({ file: f, url: URL.createObjectURL(f) })));
+      // Handle array of Files or array of URL strings from DB
+      const processedPreviews = currentValue.map((item: any) => {
+        if (item instanceof File) {
+          return { file: item, url: URL.createObjectURL(item) };
+        } else if (typeof item === 'string' && item.startsWith('http')) {
+          return { url: item };
+        }
+        return null;
+      }).filter(Boolean);
+      
+      setPreviews(processedPreviews as {file?: File, url: string}[]);
     }
   }, [currentValue]);
 
@@ -221,7 +235,10 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
         }
       }
       
-      const filePayload = isMultiple ? combined.map(p => p.file) : combined[0].file;
+      // We only pass back the actual new Files to the form data state so the uploader logic knows to upload them.
+      // Existing string URLs don't need re-uploading.
+      const filesOnly = combined.map(p => p.file).filter(Boolean) as File[];
+      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
       onImageSelected(filePayload);
       
       return combined;
@@ -235,8 +252,10 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
       const updated = [...prev];
       updated.splice(index, 1);
       
-      const filePayload = updated.length === 0 ? null : (isMultiple ? updated.map(p => p.file) : updated[0].file);
+      const filesOnly = updated.map(p => p.file).filter(Boolean) as File[];
+      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
       onImageSelected(filePayload);
+      
       return updated;
     });
   };
@@ -305,7 +324,6 @@ export function RegistrationEditor() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [viewport, setViewport] = useState<'mobile' | 'tablet' | 'desktop'>('desktop'); 
 
-  // Field Manager State
   const [showFieldManager, setShowFieldManager] = useState(false);
   const [newFieldId, setNewFieldId] = useState('');
   const [newFieldLabel, setNewFieldLabel] = useState('');
@@ -1167,6 +1185,14 @@ export function RegisterRestaurant() {
   const [formData, setFormData] = useState<Record<string, any>>({ hours_source: 'Googleマップと同じ' });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  
+  // Delta Update State
+  const [isUpdateMode, setIsUpdateMode] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
+
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [ads, setAds] = useState<any[]>([]);
@@ -1209,6 +1235,72 @@ export function RegisterRestaurant() {
     fetchData();
   }, []);
 
+  // --- DELTA UPDATE LIVE SEARCH LOGIC ---
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (searchQuery.trim().length > 1 && !updateTargetId) {
+        setIsSearching(true);
+        // Only fetching safe search identifiers here
+        const { data } = await supabase
+          .from('restaurants')
+          .select('id, title, address')
+          .eq('status', 'approved')
+          .ilike('title', `%${searchQuery}%`)
+          .limit(10);
+        
+        setSearchResults(data || []);
+        setIsSearching(false);
+      } else {
+        setSearchResults([]);
+      }
+    }, 300);
+
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, updateTargetId]);
+
+  const handleSelectRestaurantToUpdate = async (restaurant: any) => {
+    setUpdateTargetId(restaurant.id);
+    setSearchQuery(restaurant.title);
+    setSearchResults([]);
+    setLoading(true);
+
+    // SECURE: Strict selection to prevent private data leaks (contact info, admin notes, etc.)
+    const { data, error } = await supabase
+      .from('restaurants')
+      .select(SAFE_UPDATE_COLUMNS)
+      .eq('id', restaurant.id)
+      .single();
+    
+    setLoading(false);
+    if (data) {
+      const newFormData: any = {};
+      
+      // Map standard safe columns
+      Object.keys(data).forEach(key => {
+        if (key !== 'custom_fields' && key !== 'other_options') {
+          newFormData[key] = data[key];
+        }
+      });
+
+      // Map custom JSON fields back to dot.notation keys
+      if (data.custom_fields) {
+        Object.keys(data.custom_fields).forEach(key => {
+          newFormData[`custom_fields.${key}`] = data.custom_fields[key];
+        });
+      }
+
+      // Default the hours source if it wasn't strictly set previously
+      if (!newFormData.hours_source) {
+        newFormData.hours_source = data.operating_hours || 'Googleマップと同じ';
+      }
+
+      setFormData(newFormData);
+      setSelectedEvents(data.other_options || []);
+    } else if (error) {
+      setMessage(`データの取得に失敗しました: ${error.message}`);
+    }
+  };
+
   const handleInputChange = (dbColumn: string, value: any) => {
     setFormData(prev => ({ ...prev, [dbColumn]: value }));
   };
@@ -1232,6 +1324,12 @@ export function RegisterRestaurant() {
     setMessage('');
 
     const payload: any = { status: 'pending', custom_fields: {}, other_options: selectedEvents };
+    
+    // Attach delta update tags if applicable
+    if (isUpdateMode && updateTargetId) {
+      payload.custom_fields.update_target_id = updateTargetId;
+      payload.custom_fields.update_target_name = searchQuery;
+    }
     
     for (const key of Object.keys(formData)) {
       if (key.startsWith('hours_') && key !== 'hours_source') continue;
@@ -1300,6 +1398,8 @@ export function RegisterRestaurant() {
       setMessage('Information submitted successfully! Thank you for your cooperation.');
       setFormData({ hours_source: 'Googleマップと同じ' });
       setSelectedEvents([]);
+      setUpdateTargetId(null);
+      setSearchQuery('');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -1315,192 +1415,4 @@ export function RegisterRestaurant() {
       <div key={block.id} className="animate-in fade-in duration-300">
         {block.type === 'hours_source' && (
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-500">*</span>}</label>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-              {block.options?.map((opt: string) => (
-                <label key={opt} className="cursor-pointer">
-                  <input type="radio" required={block.required && !formData[block.dbColumn]} checked={formData[block.dbColumn] === opt} onChange={() => handleInputChange(block.dbColumn, opt)} className="peer sr-only" />
-                  <div className="px-4 py-4 rounded-xl border-2 border-gray-200 peer-checked:border-orange-500 peer-checked:bg-orange-50 text-center font-bold text-gray-600 peer-checked:text-orange-700 transition">
-                    {opt}
-                  </div>
-                </label>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {block.type === 'operating_hours' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-2xl border border-gray-200">
-            <p className="md:col-span-2 text-sm text-gray-500 mb-2 font-medium">※ 定休日の場合は未記入、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。</p>
-            {DAYS.map(day => (
-              <div key={day} className="flex items-center bg-white p-3 rounded-xl border border-gray-200 shadow-sm focus-within:ring-2 focus-within:ring-orange-500 transition">
-                 <span className="w-24 font-bold text-gray-700">{day}</span>
-                 <input type="text" value={formData[`hours_${day}`] || ''} onChange={(e) => handleInputChange(`hours_${day}`, e.target.value)} className="flex-grow px-3 py-2 bg-gray-50 border-none rounded-lg outline-none text-sm font-bold text-gray-800" placeholder="11:00〜20:00" />
-              </div>
-            ))}
-          </div>
-        )}
-
-        {block.type === 'photo_method' && (
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-500">*</span>}</label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {block.options?.map((opt: string) => {
-                const getSub = (o: string) => o.includes("メール") ? "eatodakimasu@gmail.com宛" : o.includes("HP") ? "HPのリンクを共有してください" : o.includes("スタッフ") ? "後日日程調整のご連絡をします" : "";
-                return (
-                  <label key={opt} className="cursor-pointer">
-                    <input type="radio" required={block.required && !formData[block.dbColumn]} checked={formData[block.dbColumn] === opt} onChange={() => handleInputChange(block.dbColumn, opt)} className="peer sr-only" />
-                    <div className="p-4 rounded-xl border-2 border-gray-200 peer-checked:border-orange-500 peer-checked:bg-orange-50 transition">
-                      <p className="font-bold text-gray-800 peer-checked:text-orange-900">{opt}</p>
-                      <p className="text-xs text-gray-500 mt-1">{getSub(opt)}</p>
-                    </div>
-                  </label>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {!['hours_source', 'operating_hours', 'photo_method'].includes(block.type) && (
-          <div>
-            {block.type !== 'html' && (
-              <label className="block text-sm font-bold text-gray-700 mb-3">
-                {block.label} {block.required && <span className="text-red-500 ml-1">*</span>}
-              </label>
-            )}
-
-            {block.type === 'html' && <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: block.content }} />}
-            {block.type === 'text' && <input type="text" required={block.required && !formData[block.dbColumn]} placeholder={block.placeholder} value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none transition" />}
-            {block.type === 'textarea' && <textarea rows={4} required={block.required && !formData[block.dbColumn]} placeholder={block.placeholder} value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none transition" />}
-            
-            {block.type === 'select' && (
-              <select required={block.required && !formData[block.dbColumn]} value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none cursor-pointer font-bold text-gray-700">
-                <option value="">選択してください</option>
-                {block.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-            )}
-
-            {(block.type === 'checkbox' || block.type === 'radio') && (
-              <div className="flex flex-wrap gap-3">
-                {block.options?.map((opt: string) => {
-                  const isChecked = block.type === 'checkbox' ? (formData[block.dbColumn] || []).includes(opt) : formData[block.dbColumn] === opt;
-                  return (
-                    <label key={opt} className="cursor-pointer">
-                      <input type={block.type} required={block.required && !formData[block.dbColumn] && block.type === 'radio'} className="peer sr-only" checked={isChecked} onChange={(e) => block.type === 'checkbox' ? handleCheckboxArray(block.dbColumn, opt, e.target.checked) : handleInputChange(block.dbColumn, opt)} />
-                      <div className="px-4 py-2 rounded-lg border border-gray-200 peer-checked:bg-orange-600 peer-checked:text-white peer-checked:border-orange-600 text-sm font-bold text-gray-600 transition shadow-sm hover:bg-gray-50">{opt}</div>
-                    </label>
-                  )
-                })}
-              </div>
-            )}
-
-            {block.type === 'image_upload' && (
-              <PublicImageUploader 
-                block={block} 
-                currentValue={formData[block.dbColumn]}
-                onImageSelected={(file) => handleInputChange(block.dbColumn, file)}
-              />
-            )}
-          </div>
-        )}
-
-        {activeCondition && activeCondition.blocks?.length > 0 && (
-           <div className="mt-6 ml-4 md:ml-6 pl-4 md:pl-6 border-l-[3px] border-orange-300 space-y-8 relative">
-              {activeCondition.blocks.map((childBlock: any) => renderFormBlock(childBlock))}
-           </div>
-        )}
-      </div>
-    );
-  };
-
-  if (!schema) return <div className="text-center py-20 font-black tracking-widest text-gray-400 animate-pulse">LOADING FORM...</div>;
-
-  return (
-    <div className="w-full relative">
-      {mounted && !isIframe && createPortal(
-        <>
-          <div className="hidden lg:block absolute top-0 left-1/2 transform -translate-x-1/2 w-[1600px] h-0 z-40 pointer-events-none">
-            {ads.map(ad => (
-              <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="absolute pointer-events-auto rounded-[1.5rem] overflow-hidden transition hover:opacity-90 bg-gray-50 shadow-lg" style={{ left: ad.x, top: ad.y, width: ad.w, height: ad.h }}>
-                <img src={ad.image_url} className="w-full h-full object-cover" alt="Advertisement" />
-              </a>
-            ))}
-          </div>
-          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
-            {ads.filter(a => a.mobile_fallback === 'sticky').map(ad => (
-              <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="w-full h-20 bg-white flex items-center px-5 gap-4 border-t border-gray-200 pointer-events-auto shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
-                <img src={ad.image_url} className="w-12 h-12 rounded-xl object-cover" alt="Sponsored" />
-                <div className="flex flex-col flex-1 truncate">
-                  <span className="font-black text-sm text-gray-900">Special Promo</span>
-                  <span className="font-bold text-[10px] text-gray-400 uppercase tracking-wide">Sponsored</span>
-                </div>
-                <span className="bg-indigo-600 text-white px-5 py-2.5 rounded-full text-xs font-black">Open</span>
-              </a>
-            ))}
-          </div>
-        </>,
-        document.body
-      )}
-
-      <div className="max-w-4xl mx-auto py-8 px-4 relative z-10">
-        
-        <div className="bg-gradient-to-r from-orange-600 to-orange-500 rounded-3xl p-8 md:p-12 text-white shadow-lg mb-8">
-          <h1 className="text-3xl md:text-4xl font-black mb-4 tracking-tight">{schema.pageTitle}</h1>
-          <p className="text-orange-50 font-medium leading-relaxed whitespace-pre-line">{schema.pageDescription}</p>
-        </div>
-
-        {message && (
-          <div className={`p-5 mb-8 rounded-2xl font-bold text-center shadow-sm ${message.includes('エラー') || message.includes('Error') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-800 border border-green-200'}`}>
-            {message}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="space-y-8">
-          {schema.sections.map((section: any, index: number) => (
-            <div key={section.id} className="space-y-8">
-              <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
-                <h2 className="text-2xl font-black text-gray-900 mb-2 border-b pb-4">{index + 1}. {section.title}</h2>
-                {section.description && <p className="text-gray-500 text-sm font-medium mb-6 whitespace-pre-line">{section.description}</p>}
-                
-                <div className="space-y-8 mt-6">
-                  {section.blocks.map((block: any) => renderFormBlock(block))}
-                </div>
-              </section>
-
-              {index === 0 && activeEvents.length > 0 && (
-                <section className="p-8 md:p-10 bg-purple-50 border border-purple-100 rounded-[32px] space-y-6">
-                  <div className="mb-2">
-                    <h2 className="text-2xl font-black text-purple-900 mb-2 flex items-center gap-2"><span>🎉</span> 参加イベント・キャンペーン</h2>
-                    <p className="text-sm font-medium text-purple-800/80">イベントに参加している場合はチェックを入れてください。</p>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    {activeEvents.map(event => (
-                      <label key={event.id} className="flex items-start cursor-pointer p-4 rounded-2xl border border-purple-200 bg-white hover:bg-purple-50 hover:border-purple-300 transition-all duration-200 shadow-sm">
-                        <div className="flex items-center h-6 mt-1">
-                          <input type="checkbox" checked={selectedEvents.includes(event.name)} onChange={(e) => handleEventToggle(event.name, e.target.checked)} className="w-5 h-5 accent-purple-600 rounded" />
-                        </div>
-                        <div className="ml-4 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-xs font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${event.is_constant ? 'bg-slate-200 text-slate-800' : 'bg-purple-200 text-purple-900'}`}>
-                              {event.is_constant ? '📌 常設 / Permanent' : '⏰ 期間限定 / Seasonal'}
-                            </span>
-                          </div>
-                          <span className="font-black text-gray-900 text-lg">{event.name}</span>
-                          {event.description && <p className="text-sm text-gray-600 mt-1 line-clamp-2">{event.description}</p>}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </section>
-              )}
-            </div>
-          ))}
-
-          <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white text-xl font-black py-5 px-6 rounded-2xl hover:from-orange-700 hover:to-orange-600 transition shadow-lg hover:shadow-xl disabled:opacity-50 transform hover:-translate-y-1">
-            {loading ? '送信中... (Submitting)' : 'この内容で店舗を登録する'}
-          </button>
-        </form>
-      </div>
-    </div>
-  );
-}
+            <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-5
