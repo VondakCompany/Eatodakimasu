@@ -1,10 +1,12 @@
 // /app/register/page.tsx
-
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
+
+// SECURE: Explicitly excluding private admin columns from the delta update fetch
+const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options';
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
 
@@ -18,161 +20,119 @@ const BASELINE_SCHEMA = {
       description: "",
       blocks: [
         { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
-        { id: "b_cname", type: "text", label: "ご担当者名 (🔒 非公開)", dbColumn: "contact_name", required: false, placeholder: "例：早稲田 太郎" },
-        { id: "b_cphone", type: "text", label: "電話番号 (🔒 非公開)", dbColumn: "contact_phone", required: false, placeholder: "例：03-1234-5678" },
-        { id: "b_cemail", type: "text", label: "メールアドレス (🔒 非公開)", dbColumn: "contact_email", required: false, placeholder: "例：shop@example.com" },
         { id: "b_address", type: "text", label: "住所 (🌐 サイト公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
-      ]
-    },
-    {
-      id: "sec_2",
-      title: "2. 営業時間",
-      description: "",
-      blocks: [
-        { 
-          id: "b_hsource", 
-          type: "hours_source", 
-          label: "営業時間はどちらを参考にすればよろしいですか？", 
-          dbColumn: "hours_source", 
-          required: true, 
-          options: ["Googleマップと同じ", "店舗HPと同じ", "ここで手動で入力する"],
-          conditions: [
-            {
-              triggerValue: "ここで手動で入力する",
-              blocks: [
-                { id: "b_hmanual", type: "operating_hours", label: "手動入力の場合", dbColumn: "operating_hours", required: false }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    {
-      id: "sec_3",
-      title: "3. お食事とサービス",
-      description: "",
-      blocks: [
-        { id: "b_cuisine", type: "checkbox", label: "代表的な料理ジャンル (複数可)", dbColumn: "cuisine", required: false, options: ['和食', '洋食', '中華', '韓国料理', 'インド料理', '東南アジア', 'ファストフード', 'カフェ・スイーツ', '寿司', '丼もの'] },
-        { id: "b_restrict", type: "checkbox", label: "食事制限への対応 (複数可)", dbColumn: "food_restrictions", required: false, options: ['ハラール', 'ヴィーガン', 'ベジタリアン', 'グルテンフリー', 'コーシャ', '乳製品不使用', 'ペスカタリアン'] },
-        { id: "b_price", type: "select", label: "1名あたりの平均ご利用金額（目安）", dbColumn: "restaurant_price", required: false, options: ["500", "1000", "1500", "2000", "3000", "5000"] },
-        { id: "b_desc", type: "textarea", label: "店舗紹介・おすすめメニュー", dbColumn: "description", required: false, placeholder: "お店の雰囲気や、学生に人気なメニューなど自由にご記入ください。" }
-      ]
-    },
-    {
-      id: "sec_4",
-      title: "4. 設備・テイクアウト",
-      description: "",
-      blocks: [
-        { id: "b_seats", type: "text", label: "総席数", dbColumn: "total_seats", required: false, placeholder: "例：30席" },
-        { id: "b_stay", type: "select", label: "平均滞接時間", dbColumn: "avg_stay_time", required: false, options: ["〜15分", "15分〜30分", "30分〜1時間", "1時間以上"] },
-        { id: "b_takeout", type: "radio", label: "テイクアウト（お持ち帰り）を行っている", dbColumn: "custom_fields.takeout_available_text", required: false, options: ["はい", "いいえ"] },
-        { id: "b_tmenu", type: "text", label: "テイクアウト可能なメニュー", dbColumn: "takeout_menu", required: false, placeholder: "例：お弁当各種、カレー" },
-        { id: "b_tmethod", type: "checkbox", label: "注文方法 (複数可)", dbColumn: "payment_methods", required: false, options: ['店頭注文', '電話注文', 'オンライン(Uber等)'] },
-        { id: "b_atom", type: "radio", label: "地域通貨「アトム通貨」は使えますか？", dbColumn: "custom_fields.atom_currency_text", required: false, options: ["はい", "いいえ"] }
-      ]
-    },
-    {
-      id: "sec_5",
-      title: "5. 写真のご提供方法",
-      description: "",
-      blocks: [
-        { id: "b_pmethod", type: "photo_method", label: "店舗やメニューの写真のご提供方法をお選びください", dbColumn: "photo_method", required: true, options: ["後でメールで送る", "店舗HPの写真を使用する", "スタッフに撮影を依頼する"] },
-        { id: "b_notes", type: "textarea", label: "その他ご質問・ご要望", dbColumn: "admin_notes", required: false, placeholder: "ご不明点があればご自由にご記入ください。" },
-        { id: "b_image", type: "image_upload", label: "写真をアップロード・撮る", dbColumn: "image_url", required: false, placeholder: "複数枚ある場合は、代表的な1枚をお願いします" }
       ]
     }
   ]
 };
 
-// --- NEW PUBLIC COMPONENT: Interactive Image Uploader ---
-const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (file: File | null) => void, currentValue: File | null }) => {
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+// --- PUBLIC IMAGE UPLOADER COMPONENT ---
+const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (files: File | File[] | null) => void, currentValue: any }) => {
+  const [previews, setPreviews] = useState<{file?: File, url: string}[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const maxLimit = block.maxImages || 1;
+  const isMultiple = maxLimit > 1;
 
   useEffect(() => {
     if (!currentValue) {
-      setPreviewUrl(null);
+      setPreviews([]);
     } else if (currentValue instanceof File) {
-      setPreviewUrl(URL.createObjectURL(currentValue));
+      setPreviews([{ file: currentValue, url: URL.createObjectURL(currentValue) }]);
+    } else if (typeof currentValue === 'string' && currentValue.startsWith('http')) {
+      setPreviews([{ url: currentValue }]);
+    } else if (Array.isArray(currentValue)) {
+      const processedPreviews = currentValue.map((item: any) => {
+        if (item instanceof File) return { file: item, url: URL.createObjectURL(item) };
+        else if (typeof item === 'string' && item.startsWith('http')) return { url: item };
+        return null;
+      }).filter(Boolean);
+      setPreviews(processedPreviews as {file?: File, url: string}[]);
     }
   }, [currentValue]);
 
   const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file && file.type.startsWith('image/')) {
-      const url = URL.createObjectURL(file);
-      setPreviewUrl(url);
-      onImageSelected(file);
-    }
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const validImages = files.filter(f => f.type.startsWith('image/'));
+    
+    setPreviews(prev => {
+      const combined = [...prev];
+      for (const file of validImages) {
+        if (combined.length < maxLimit) combined.push({ file, url: URL.createObjectURL(file) });
+      }
+      const filesOnly = combined.map(p => p.file).filter(Boolean) as File[];
+      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
+      onImageSelected(filePayload);
+      return combined;
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const clearSelection = () => {
-    setPreviewUrl(null);
-    onImageSelected(null);
-    if (fileInputRef.current) fileInputRef.current.value = '';
+  const removeImage = (index: number) => {
+    setPreviews(prev => {
+      const updated = [...prev];
+      updated.splice(index, 1);
+      const filesOnly = updated.map(p => p.file).filter(Boolean) as File[];
+      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
+      onImageSelected(filePayload);
+      return updated;
+    });
   };
 
   return (
     <div className="mt-2 w-full animate-in fade-in duration-300">
-      <input
-        type="file"
-        accept="image/*"
-        onChange={handleFileChange}
-        ref={fileInputRef}
-        className="hidden"
-      />
-      
-      {previewUrl ? (
-        <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
-          <img 
-            src={previewUrl} 
-            alt="Upload preview" 
-            className="w-full sm:w-48 h-auto object-contain rounded-xl border border-gray-300 shadow-sm bg-white" 
-          />
-          <div className="flex flex-col gap-2 w-full sm:w-auto">
-            <button 
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="text-sm font-bold bg-white border border-gray-300 text-gray-700 px-5 py-2.5 rounded-xl hover:bg-gray-100 transition shadow-sm whitespace-nowrap"
-            >
-              写真を変更する (Change Photo)
-            </button>
-            <button 
-              type="button"
-              onClick={clearSelection}
-              className="text-sm font-bold text-red-600 hover:bg-red-50 px-5 py-2.5 rounded-xl transition whitespace-nowrap"
-            >
-              削除 (Remove)
-            </button>
+      <input type="file" accept="image/*" multiple={isMultiple} onChange={handleFileChange} ref={fileInputRef} className="hidden" />
+      {previews.length > 0 ? (
+        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
+          <div className="flex justify-between items-end mb-4">
+            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} uploaded</span>
+            {previews.length < maxLimit && (
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
+                + Add More
+              </button>
+            )}
+          </div>
+          <div className={`grid gap-4 ${isMultiple ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:w-48'}`}>
+            {previews.map((preview, idx) => (
+              <div key={idx} className="relative group aspect-square">
+                <img src={preview.url} alt={`Upload ${idx + 1}`} className="w-full h-full object-cover rounded-xl border border-gray-300 shadow-sm bg-white" />
+                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform">✕</button>
+              </div>
+            ))}
           </div>
         </div>
       ) : (
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          className="w-full py-12 px-4 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50 hover:bg-white hover:border-orange-400 hover:shadow-md transition-all group text-gray-500"
-        >
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-12 px-4 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50 hover:bg-white hover:border-orange-400 hover:shadow-md transition-all group text-gray-500">
           <div className="bg-white p-3 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
             <svg className="w-8 h-8 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           </div>
-          <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">ここをタップしてアップロードまたは撮影</span>
+          <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
+            Tap to Upload {isMultiple ? `(Up to ${maxLimit} photos)` : 'Photo'}
+          </span>
           {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
         </button>
       )}
     </div>
   );
 };
-// ----------------------------------------------
-
 
 export default function RegisterRestaurant() {
   const [schema, setSchema] = useState<any>(null);
   const [formData, setFormData] = useState<Record<string, any>>({ hours_source: 'Googleマップと同じ' });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
+  
+  // Delta Update State
+  const [isUpdateMode, setIsUpdateMode] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
+
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
   const [ads, setAds] = useState<any[]>([]);
@@ -208,16 +168,54 @@ export default function RegisterRestaurant() {
           setActiveEvents(validEvents);
         }
         if (adsRes.data) setAds(adsRes.data);
-      } catch (err: any) {
+      } catch (err) {
         setSchema(BASELINE_SCHEMA);
       }
     };
     fetchData();
   }, []);
 
-  const handleInputChange = (dbColumn: string, value: any) => {
-    setFormData(prev => ({ ...prev, [dbColumn]: value }));
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (searchQuery.trim().length > 1 && !updateTargetId) {
+        setIsSearching(true);
+        const { data } = await supabase.from('restaurants').select('id, title, address').eq('status', 'approved').ilike('title', `%${searchQuery}%`).limit(10);
+        setSearchResults(data || []);
+        setIsSearching(false);
+      } else {
+        setSearchResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, updateTargetId]);
+
+  const handleSelectRestaurantToUpdate = async (restaurant: any) => {
+    setUpdateTargetId(restaurant.id);
+    setSearchQuery(restaurant.title);
+    setSearchResults([]);
+    setLoading(true);
+
+    const { data, error } = await supabase.from('restaurants').select(SAFE_UPDATE_COLUMNS).eq('id', restaurant.id).single();
+    
+    setLoading(false);
+    if (data) {
+      const newFormData: any = {};
+      Object.keys(data).forEach(key => {
+        if (key !== 'custom_fields' && key !== 'other_options') newFormData[key] = data[key];
+      });
+      if (data.custom_fields) {
+        Object.keys(data.custom_fields).forEach(key => { newFormData[`custom_fields.${key}`] = data.custom_fields[key]; });
+      }
+      if (!newFormData.hours_source) newFormData.hours_source = data.operating_hours || 'Googleマップと同じ';
+      
+      setFormData(newFormData);
+      setSelectedEvents(data.other_options || []);
+    } else if (error) {
+      setMessage(`データの取得に失敗しました: ${error.message}`);
+    }
   };
+
+  const handleInputChange = (dbColumn: string, value: any) => setFormData(prev => ({ ...prev, [dbColumn]: value }));
 
   const handleCheckboxArray = (dbColumn: string, option: string, isChecked: boolean) => {
     setFormData(prev => {
@@ -239,53 +237,51 @@ export default function RegisterRestaurant() {
 
     const payload: any = { status: 'pending', custom_fields: {}, other_options: selectedEvents };
     
+    if (isUpdateMode && updateTargetId) {
+      payload.custom_fields.update_target_id = updateTargetId;
+      payload.custom_fields.update_target_name = searchQuery;
+    }
+    
     for (const key of Object.keys(formData)) {
       if (key.startsWith('hours_') && key !== 'hours_source') continue;
       
-      if (formData[key] instanceof File) {
-        const file = formData[key];
-        const fileExt = file.name.split('.').pop();
-        const fileName = `public-upload-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-        
-        try {
-          const { error: uploadError } = await supabase.storage
-            .from('restaurant-images')
-            .upload(fileName, file);
-            
-          if (uploadError) throw uploadError;
-          
-          const { data: publicData } = supabase.storage
-            .from('restaurant-images')
-            .getPublicUrl(fileName);
-          
-          if (key.startsWith('custom_fields.')) {
-            payload.custom_fields[key.replace('custom_fields.', '')] = publicData.publicUrl;
-          } else {
-            payload[key] = publicData.publicUrl;
+      const value = formData[key];
+      
+      if (value instanceof File || (Array.isArray(value) && value[0] instanceof File)) {
+        const files = Array.isArray(value) ? value : [value];
+        const uploadedUrls: string[] = [];
+
+        for (const file of files) {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `public-upload-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+          try {
+            const { error: uploadError } = await supabase.storage.from('restaurant-images').upload(fileName, file);
+            if (uploadError) throw uploadError;
+            const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
+            uploadedUrls.push(publicData.publicUrl);
+          } catch (uploadErr: any) {
+            setMessage(`Image upload failed: ${uploadErr.message}`);
+            setLoading(false);
+            return;
           }
-        } catch (uploadErr: any) {
-          console.error("Image upload failed:", uploadErr);
-          setMessage(`Error uploading image: ${uploadErr.message}`);
-          setLoading(false);
-          return;
         }
+        
+        const finalUrlData = key === 'image_urls' ? uploadedUrls : uploadedUrls[0];
+        if (key.startsWith('custom_fields.')) payload.custom_fields[key.replace('custom_fields.', '')] = finalUrlData;
+        else payload[key] = finalUrlData;
         continue;
       }
 
-      if (key.startsWith('custom_fields.')) {
-        payload.custom_fields[key.replace('custom_fields.', '')] = formData[key];
-      } else {
-        payload[key] = formData[key];
-      }
+      if (key.startsWith('custom_fields.')) payload.custom_fields[key.replace('custom_fields.', '')] = value;
+      else payload[key] = value;
     }
 
-    let finalHours = '';
+    let finalHours: any = '';
     const hSource = formData['hours_source'];
     if (hSource === 'ここで手動で入力する') {
-      finalHours = DAYS.map(day => {
-        const val = formData[`hours_${day}`];
-        return val ? `${day}: ${val}` : `${day}: 定休/未設定`;
-      }).join('\n');
+      const hoursObj: Record<string, string> = {};
+      DAYS.forEach(day => { hoursObj[day] = formData[`hours_${day}`] || ''; });
+      finalHours = JSON.stringify(hoursObj);
     } else {
       finalHours = hSource || '';
     }
@@ -297,9 +293,11 @@ export default function RegisterRestaurant() {
     if (error) {
       setMessage(`Error occurred: ${error.message}`);
     } else {
-      setMessage('情報の送信が完了しました！ご協力誠にありがとうございます。');
+      setMessage('Information submitted successfully! Thank you for your cooperation.');
       setFormData({ hours_source: 'Googleマップと同じ' });
       setSelectedEvents([]);
+      setUpdateTargetId(null);
+      setSearchQuery('');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
   };
@@ -450,12 +448,72 @@ export default function RegisterRestaurant() {
         </div>
 
         {message && (
-          <div className={`p-5 mb-8 rounded-2xl font-bold text-center shadow-sm ${message.includes('エラー') || message.includes('Error') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-800 border border-green-200'}`}>
+          <div className={`p-5 mb-8 rounded-2xl font-bold text-center shadow-sm ${message.includes('エラー') || message.includes('failed') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-800 border border-green-200'}`}>
             {message}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="space-y-8">
+        <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200 mb-8">
+          <h2 className="text-2xl font-black text-gray-900 mb-4 border-b pb-4">登録の種類</h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <label className="cursor-pointer">
+              <input type="radio" checked={!isUpdateMode} onChange={() => { setIsUpdateMode(false); setUpdateTargetId(null); setSearchQuery(''); setFormData({ hours_source: 'Googleマップと同じ' }); }} className="peer sr-only" />
+              <div className="px-4 py-4 rounded-xl border-2 border-gray-200 peer-checked:border-orange-500 peer-checked:bg-orange-50 text-center font-bold text-gray-600 peer-checked:text-orange-700 transition shadow-sm">
+                新しい店舗を登録する
+              </div>
+            </label>
+            <label className="cursor-pointer">
+              <input type="radio" checked={isUpdateMode} onChange={() => setIsUpdateMode(true)} className="peer sr-only" />
+              <div className="px-4 py-4 rounded-xl border-2 border-gray-200 peer-checked:border-orange-500 peer-checked:bg-orange-50 text-center font-bold text-gray-600 peer-checked:text-orange-700 transition shadow-sm">
+                既存の店舗情報を更新する
+              </div>
+            </label>
+          </div>
+
+          {isUpdateMode && (
+            <div className="bg-orange-50/50 p-6 rounded-2xl border border-orange-100 animate-in fade-in zoom-in-95 duration-200">
+              <label className="block text-sm font-bold text-gray-800 mb-2">更新する店舗を検索してください</label>
+              <div className="relative">
+                <input 
+                  type="text" 
+                  value={searchQuery}
+                  onChange={(e) => { setSearchQuery(e.target.value); setUpdateTargetId(null); }}
+                  placeholder="店舗名を入力..." 
+                  className="w-full px-5 py-3 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-gray-800 shadow-sm"
+                />
+                {isSearching && <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-orange-500 font-bold text-sm animate-pulse">検索中...</span>}
+              </div>
+              
+              {searchResults.length > 0 && !updateTargetId && (
+                <div className="mt-2 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-60 overflow-y-auto">
+                  {searchResults.map(res => (
+                    <button 
+                      key={res.id} 
+                      type="button"
+                      onClick={() => handleSelectRestaurantToUpdate(res)}
+                      className="w-full text-left px-5 py-3 border-b border-gray-100 hover:bg-orange-50 focus:bg-orange-50 transition"
+                    >
+                      <div className="font-bold text-gray-900">{res.title}</div>
+                      <div className="text-xs text-gray-500 truncate">{res.address}</div>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {updateTargetId && (
+                <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-green-800 font-black text-sm">✓ 店舗データ読み込み完了 (Public data only)</span>
+                    <span className="text-green-600 text-xs font-bold mt-1">以下のフォームに現在の情報が入力されています。修正箇所を書き換えて送信してください。</span>
+                  </div>
+                  <button type="button" onClick={() => { setUpdateTargetId(null); setSearchQuery(''); setFormData({ hours_source: 'Googleマップと同じ' }); }} className="text-sm font-bold bg-white text-green-700 px-3 py-1.5 rounded-lg border border-green-200 hover:bg-green-100 transition">変更</button>
+                </div>
+              )}
+            </div>
+          )}
+        </section>
+
+        <form id="registration-form" onSubmit={handleSubmit} className={`space-y-8 transition-opacity duration-300 ${isUpdateMode && !updateTargetId ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
           {schema.sections.map((section: any, index: number) => (
             <div key={section.id} className="space-y-8">
               <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
@@ -497,7 +555,7 @@ export default function RegisterRestaurant() {
           ))}
 
           <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white text-xl font-black py-5 px-6 rounded-2xl hover:from-orange-700 hover:to-orange-600 transition shadow-lg hover:shadow-xl disabled:opacity-50 transform hover:-translate-y-1">
-            {loading ? '送信中... (Submitting)' : 'この内容で店舗を登録する'}
+            {loading ? '送信中... (Submitting)' : isUpdateMode ? '更新内容を送信する' : 'この内容で店舗を登録する'}
           </button>
         </form>
       </div>
