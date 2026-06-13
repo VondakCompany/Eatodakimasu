@@ -1,362 +1,287 @@
+// /app/register/page.tsx
 'use client';
 
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
-import Link from 'next/link';
-import { useLanguage } from '@/contexts/LanguageContext';
 
-const PUBLIC_COLUMNS = 'id, title, description, restaurant_price, cuisine, food_restrictions, takeout_available, takeout_menu, total_seats, avg_stay_time, image_url, address, payment_methods, website_url, discount_info, title_en, description_en, takeout_menu_en, full_menu, full_menu_en, other_options, translations, category_collabs, lat, lng, operating_hours, hours_source, image_urls, discount_type, food_restrictions_description, takeout_how_to, image_formInput_url, custom_fields, status';
+// SECURE: Explicitly excluding private admin columns from the delta update fetch
+const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options';
 
-export default function RestaurantPage({ params }: { params: Promise<{ id: string }> }) {
-  const { currentLang, t } = useLanguage();
-  const [restaurant, setRestaurant] = useState<any>(null);
-  const [allCategories, setAllCategories] = useState<any[]>([]); 
-  const [ads, setAds] = useState<any[]>([]);
-  
-  const [allFilterOptions, setAllFilterOptions] = useState<any[]>([]);
-  const [customFilterTypes, setCustomFilterTypes] = useState<string[]>([]);
-  
-  const [formSchemaBlocks, setFormSchemaBlocks] = useState<any[]>([]);
-  const [formBaseColumns, setFormBaseColumns] = useState<any[]>([]);
-  
-  const [loading, setLoading] = useState(true);
-  const [isSlowData, setIsSlowData] = useState(false);
+const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
 
-  const [lightboxOpen, setLightboxOpen] = useState(false);
-  const [lightboxIndex, setLightboxIndex] = useState(0);
+const BASELINE_SCHEMA = {
+  pageTitle: "ワセメシ情報ご提供のお願い",
+  pageDescription: "私たちは早稲田大学国際教養学部の「イートチーム」と申します。\n「ワセメシ」の魅力をもっと多くの方に知っていただき、地域のお店と学生・観光客をつなぐ多言語対応のレストラン検索サイト「イートダキマス」を作成しています。\n\n✅ 掲載はすべて無料です\n✅ 頂いた情報を元に、こちらで多言語（英語等）に翻訳して掲載します\n✅ 所要時間は5〜10分程度です",
+  sections: [
+    {
+      id: "sec_1",
+      title: "1. 店舗の基本情報",
+      description: "",
+      blocks: [
+        { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
+        { id: "b_address", type: "text", label: "住所 (🌐 サイト公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
+      ]
+    }
+  ]
+};
+
+// --- PUBLIC IMAGE UPLOADER COMPONENT ---
+const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (files: File | File[] | null) => void, currentValue: any }) => {
+  const [previews, setPreviews] = useState<{file?: File, url: string}[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  
+  const maxLimit = block.maxImages || 1;
+  const isMultiple = maxLimit > 1;
 
   useEffect(() => {
-    const fetchData = async () => {
-      setLoading(true);
-      setIsSlowData(false);
-      
-      const slowTimer = setTimeout(() => setIsSlowData(true), 4000);
-      const resolvedParams = await params; 
-      
-      await Promise.allSettled([
-        supabase.from('restaurants').select(PUBLIC_COLUMNS).eq('id', resolvedParams.id).single()
-          .then(res => { if (res.data) setRestaurant(res.data); }),
-          
-        supabase.from('custom_categories').select('*')
-          .then(res => { if (res.data) setAllCategories(res.data); }),
-          
-        supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/restaurant/*', `/restaurant/${resolvedParams.id}`])
-          .then(res => { if (res.data) setAds(res.data); }),
-          
-        supabase.from('filter_options').select('*')
-          .then(res => {
-            if (res.data) {
-              setAllFilterOptions(res.data);
-              const types = Array.from(new Set(res.data.map(d => d.type)));
-              const custom = types.filter(t => !['cuisine', 'restriction', 'payment', 'area'].includes(t));
-              setCustomFilterTypes(custom as string[]);
-            }
-          }),
-          
-        supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle()
-          .then(res => {
-            if (res.data?.data?.sections) {
-              const allBlocks: any[] = [];
-              const extractBlocks = (blocks: any[]) => {
-                blocks.forEach(b => {
-                  allBlocks.push(b);
-                  if (b.conditions) b.conditions.forEach((c: any) => extractBlocks(c.blocks));
-                });
-              };
-              res.data.data.sections.forEach((s: any) => extractBlocks(s.blocks));
-              setFormSchemaBlocks(allBlocks);
-            }
-          }),
-          
-        supabase.from('form_base_columns').select('*').eq('is_hidden', false)
-          .then(res => { if (res.data) setFormBaseColumns(res.data); })
-      ]);
-
-      setLoading(false);
-      clearTimeout(slowTimer);
-    };
-
-    fetchData();
-  }, [params]);
-
-  if (loading) {
-    return (
-      <div className="flex flex-col justify-center items-center min-h-[60vh] px-6">
-        <div className="w-10 h-10 border-4 border-orange-200 border-t-orange-600 rounded-full animate-spin mb-6"></div>
-        <span className="text-orange-900 font-black text-xl tracking-widest mb-2">{t('searching', '検索中...')}</span>
-        {isSlowData && (
-           <div className="mt-4 bg-orange-50 text-orange-600 px-4 py-2 rounded-full text-xs font-black flex items-center gap-2 animate-in fade-in">
-              <span className="relative flex h-2 w-2">
-                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
-              </span>
-              通信環境が不安定です...
-           </div>
-        )}
-      </div>
-    );
-  }
-
-  if (!restaurant) {
-    return (
-      <div className="text-center py-24 max-w-2xl mx-auto">
-        <h1 className="text-3xl font-black text-gray-900 mb-4">{t('label_no_results', '見つかりませんでした。')}</h1>
-        <Link href="/" className="text-orange-600 font-bold hover:underline">← {t('btn_back_search', '検索に戻る')}</Link>
-      </div>
-    );
-  }
-
-  const openLightbox = (index: number) => { setLightboxIndex(index); setLightboxOpen(true); };
-  const closeLightbox = () => setLightboxOpen(false);
-  const nextImage = (e: React.MouseEvent) => { e.stopPropagation(); setLightboxIndex((prev) => (prev + 1) % restaurant.image_urls.length); };
-  const prevImage = (e: React.MouseEvent) => { e.stopPropagation(); setLightboxIndex((prev) => (prev - 1 + restaurant.image_urls.length) % restaurant.image_urls.length); };
-
-  const formatOperatingHours = (hours: any) => {
-    if (!hours) return '';
-    if (typeof hours === 'string') {
-      try {
-        const parsed = JSON.parse(hours);
-        return Object.entries(parsed).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
-      } catch { return hours; }
+    if (!currentValue) {
+      setPreviews([]);
+    } else if (currentValue instanceof File) {
+      setPreviews([{ file: currentValue, url: URL.createObjectURL(currentValue) }]);
+    } else if (typeof currentValue === 'string' && currentValue.startsWith('http')) {
+      setPreviews([{ url: currentValue }]);
+    } else if (Array.isArray(currentValue)) {
+      const processedPreviews = currentValue.map((item: any) => {
+        if (item instanceof File) return { file: item, url: URL.createObjectURL(item) };
+        else if (typeof item === 'string' && item.startsWith('http')) return { url: item };
+        return null;
+      }).filter(Boolean);
+      setPreviews(processedPreviews as {file?: File, url: string}[]);
     }
-    if (typeof hours === 'object') {
-      return Object.entries(hours).filter(([_, v]) => v).map(([k, v]) => `${k}: ${v}`).join('\n');
-    }
-    return String(hours);
+  }, [currentValue]);
+
+  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+
+    const validImages = files.filter(f => f.type.startsWith('image/'));
+    
+    setPreviews(prev => {
+      const combined = [...prev];
+      for (const file of validImages) {
+        if (combined.length < maxLimit) combined.push({ file, url: URL.createObjectURL(file) });
+      }
+      const filesOnly = combined.map(p => p.file).filter(Boolean) as File[];
+      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
+      onImageSelected(filePayload);
+      return combined;
+    });
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
-  const displayHours = formatOperatingHours(restaurant.operating_hours);
-  const displayTitle = currentLang === 'ja' ? restaurant.title : (restaurant.translations?.[currentLang]?.title || restaurant.title);
-  const displayDescription = currentLang === 'ja' ? restaurant.description : (restaurant.translations?.[currentLang]?.description || restaurant.description);
-  const displayMenu = currentLang === 'ja' ? restaurant.full_menu : (restaurant.translations?.[currentLang]?.full_menu || restaurant.full_menu);
-  
-  const takeoutData = restaurant.takeout_menu || restaurant.custom_fields?.takeout_available_text;
-  const displayTakeout = currentLang === 'ja' ? takeoutData : (restaurant.translations?.[currentLang]?.takeout_menu || takeoutData);
-
-  // FIX: Proper map link generation query parameters
-  const mapEmbedUrl = restaurant.address ? `https://maps.google.com/maps?q=${encodeURIComponent(restaurant.address)}&t=&z=16&ie=UTF8&iwloc=&output=embed` : null;
-  const mapOutboundLink = restaurant.address ? `https://maps.google.com/?q=${encodeURIComponent(restaurant.address)}` : null;
-
-  const handleShare = async () => {
-    const shareData = { title: displayTitle, text: displayDescription?.substring(0, 50) + '...', url: window.location.href };
-    if (navigator.share && navigator.canShare && navigator.canShare(shareData)) {
-      try { await navigator.share(shareData); } catch (err) { console.error(err); }
-    } else {
-      navigator.clipboard.writeText(window.location.href);
-      alert(t('share_copied', 'リンクをコピーしました！ / Link copied!'));
-    }
+  const removeImage = (index: number) => {
+    setPreviews(prev => {
+      const updated = [...prev];
+      updated.splice(index, 1);
+      const filesOnly = updated.map(p => p.file).filter(Boolean) as File[];
+      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
+      onImageSelected(filePayload);
+      return updated;
+    });
   };
-
-  const actualEvents = (restaurant.other_options || []).filter((catName: string) => allCategories.some(c => c.name === catName));
 
   return (
-    <>
-      <div className="hidden lg:block absolute top-0 left-1/2 transform -translate-x-1/2 w-[1600px] h-0 z-40 pointer-events-none">
-        {ads.map(ad => (
-          <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="absolute pointer-events-auto rounded-[1.5rem] overflow-hidden transition hover:opacity-90 bg-gray-50" style={{ left: ad.x, top: ad.y, width: ad.w, height: ad.h }}>
-            <img src={ad.image_url} className="w-full h-full object-cover" alt="Advertisement" />
-          </a>
-        ))}
-      </div>
-
-      <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
-        {ads.filter(a => a.mobile_fallback === 'sticky').map(ad => (
-          <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="w-full h-20 bg-white flex items-center px-5 gap-4 border-t border-gray-200 pointer-events-auto hover:bg-gray-50 transition">
-            <img src={ad.image_url} className="w-12 h-12 rounded-xl object-cover" alt="Sponsored" />
-            <div className="flex flex-col flex-1 truncate">
-              <span className="font-black text-sm text-gray-900">Special Promo</span>
-              <span className="font-bold text-[10px] text-gray-400 uppercase tracking-wide">Sponsored</span>
-            </div>
-            <span className="bg-indigo-600 text-white px-5 py-2.5 rounded-full text-xs font-black">Open</span>
-          </a>
-        ))}
-      </div>
-
-      {lightboxOpen && restaurant.image_urls && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/95 backdrop-blur-sm" onClick={closeLightbox}>
-          <button className="absolute top-6 right-8 text-white/70 hover:text-white text-4xl font-light transition-colors z-50" onClick={closeLightbox}>✕</button>
-          {restaurant.image_urls.length > 1 && (
-            <button className="absolute left-4 md:left-8 text-white/50 hover:text-white text-5xl md:text-6xl p-4 transition-colors z-50 select-none" onClick={prevImage}>‹</button>
-          )}
-          <div className="relative max-w-5xl max-h-[85vh] w-full px-12 md:px-24 flex justify-center items-center select-none">
-            <img src={restaurant.image_urls[lightboxIndex]} alt={`${displayTitle} gallery full`} className="max-w-full max-h-[85vh] object-contain shadow-2xl rounded-sm pointer-events-auto" onClick={(e) => e.stopPropagation()} />
-            <div className="absolute -bottom-10 left-1/2 -translate-x-1/2 text-white/60 text-sm tracking-widest font-mono">{lightboxIndex + 1} / {restaurant.image_urls.length}</div>
+    <div className="mt-2 w-full animate-in fade-in duration-300">
+      <input type="file" accept="image/*" multiple={isMultiple} onChange={handleFileChange} ref={fileInputRef} className="hidden" />
+      {previews.length > 0 ? (
+        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
+          <div className="flex justify-between items-end mb-4">
+            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} uploaded</span>
+            {previews.length < maxLimit && (
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
+                + Add More
+              </button>
+            )}
           </div>
-          {restaurant.image_urls.length > 1 && (
-            <button className="absolute right-4 md:right-8 text-white/50 hover:text-white text-5xl md:text-6xl p-4 transition-colors z-50 select-none" onClick={nextImage}>›</button>
-          )}
+          <div className={`grid gap-4 ${isMultiple ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:w-48'}`}>
+            {previews.map((preview, idx) => (
+              <div key={idx} className="relative group aspect-square">
+                <img src={preview.url} alt={`Upload ${idx + 1}`} className="w-full h-full object-cover rounded-xl border border-gray-300 shadow-sm bg-white" />
+                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform">✕</button>
+              </div>
+            ))}
+          </div>
         </div>
+      ) : (
+        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-12 px-4 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50 hover:bg-white hover:border-orange-400 hover:shadow-md transition-all group text-gray-500">
+          <div className="bg-white p-3 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
+            <svg className="w-8 h-8 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+            </svg>
+          </div>
+          <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
+            Tap to Upload {isMultiple ? `(Up to ${maxLimit} photos)` : 'Photo'}
+          </span>
+          {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
+        </button>
       )}
-
-      <div className="max-w-4xl mx-auto bg-white rounded-3xl shadow-sm border border-gray-200 overflow-hidden mt-4 md:mt-8 mb-24 relative z-10">
-        <div className="h-64 md:h-96 w-full relative bg-gray-900 group">
-          <img src={restaurant.image_url || "/images/default.jpg"} alt={displayTitle} className="object-cover w-full h-full opacity-60 absolute inset-0 z-0" />
-          <div className="absolute top-6 left-6 right-6 flex justify-between z-10">
-            <Link href="/" className="bg-white/90 backdrop-blur text-gray-900 px-4 py-2 rounded-xl font-bold text-sm hover:bg-white transition shadow-sm">{t('btn_back_search', '← 検索に戻る')}</Link>
-            <button onClick={handleShare} className="bg-white/90 backdrop-blur text-gray-900 px-4 py-2 rounded-xl font-bold text-sm hover:bg-white transition shadow-sm flex items-center gap-2"><span>↗</span> {t('btn_share', 'シェア')}</button>
-          </div>
-        </div>
-
-        <div className="p-8 md:p-12">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4 border-b border-gray-100 pb-8">
-            <div>
-              <h1 className="text-4xl md:text-5xl font-black text-gray-900 tracking-tight mb-2">{displayTitle}</h1>
-              {actualEvents.length > 0 && <span className="inline-block mt-2 mb-2 bg-pink-100 text-pink-800 text-sm font-black px-4 py-1.5 rounded-full shadow-sm border border-pink-200">{t('badge_event_full', '🎉 イベント参加店舗')}</span>}
-              {restaurant.cuisine && restaurant.cuisine.length > 0 && <p className="text-orange-600 font-bold mt-2">{restaurant.cuisine.map((c: string) => t(`tag_${c}`, c)).join(' • ')}</p>}
-            </div>
-            {restaurant.restaurant_price && (
-              <span className="bg-orange-50 text-orange-800 text-lg font-black px-6 py-3 rounded-2xl border border-orange-100 whitespace-nowrap shadow-sm">
-                {t('price_estimate', '目安: ¥{{price}}〜', { price: restaurant.restaurant_price })}
-              </span>
-            )}
-          </div>
-
-          {displayDescription && <p className="text-lg text-gray-700 mb-12 leading-relaxed whitespace-pre-wrap">{displayDescription}</p>}
-
-          <div className="mb-12">
-            <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center"><span className="text-3xl mr-3">📋</span> {t('label_menu_full', 'メニュー')}</h2>
-            <div className="bg-gray-50 p-6 md:p-8 rounded-3xl border border-gray-100">
-              {displayMenu ? <div className="text-gray-800 font-medium leading-relaxed whitespace-pre-wrap">{displayMenu}</div> : <p className="text-gray-500 italic">{t('menu_coming_soon', 'メニューの詳細は現在準備中です。')}</p>}
-              
-              {(restaurant.takeout_available || displayTakeout) && (
-                <div className="mt-8 pt-6 border-t border-gray-200">
-                  <h3 className="text-sm font-black text-orange-900 uppercase tracking-wider mb-3 flex items-center">{t('label_takeout_full', '🛍️ テイクアウトメニュー')}</h3>
-                  <p className="text-gray-800 font-medium whitespace-pre-wrap">{displayTakeout || t('takeout_available', 'テイクアウト対応あり')}</p>
-                </div>
-              )}
-            </div>
-          </div>
-
-          {restaurant.image_urls && restaurant.image_urls.length > 0 && (
-            <div className="mb-12">
-              <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center"><span className="text-3xl mr-3">📸</span> {t('label_gallery', 'ギャラリー')}</h2>
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3">
-                {restaurant.image_urls.map((url: string, idx: number) => (
-                  <button key={idx} onClick={() => openLightbox(idx)} className="aspect-square rounded-2xl overflow-hidden border border-gray-200 shadow-sm bg-gray-50 group focus:outline-none focus:ring-4 focus:ring-orange-500/30">
-                    <img src={url} alt={`${displayTitle} thumbnail ${idx + 1}`} className="w-full h-full object-cover group-hover:scale-110 group-hover:opacity-90 transition duration-300" />
-                  </button>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {actualEvents.length > 0 && (
-            <div className="space-y-6 mb-12">
-              <h2 className="text-2xl font-black text-gray-900 mb-6 flex items-center"><span className="text-3xl mr-3">🎉</span> {t('label_events_campaigns', 'イベント＆キャンペーン')}</h2>
-              {actualEvents.map((catName: string) => {
-                const categoryData = allCategories.find(c => c.name === catName);
-                const isConstant = categoryData?.is_constant === true;
-                const globalDesc = categoryData ? (currentLang === 'ja' ? categoryData.description : (categoryData.translations?.[currentLang]?.description || categoryData.description)) : '';
-                const baseCollab = restaurant.category_collabs?.[catName];
-                const localizedCollab = currentLang === 'ja' ? baseCollab : (restaurant.translations?.[currentLang]?.category_collabs?.[catName] || baseCollab);
-
-                return (
-                  <div key={catName} className={`p-6 md:p-8 rounded-3xl shadow-sm relative overflow-hidden border ${isConstant ? 'bg-slate-50 border-slate-200' : 'bg-gradient-to-br from-purple-50 to-pink-50 border-purple-100'}`}>
-                    <div className={`absolute top-0 right-0 w-32 h-32 opacity-5 rounded-bl-full -z-0 ${isConstant ? 'bg-slate-900' : 'bg-purple-500'}`}></div>
-                    <h3 className={`text-xl font-black mb-3 relative z-10 ${isConstant ? 'text-slate-900' : 'text-purple-900'}`}>{t(`tag_${catName}`, catName)}</h3>
-                    {globalDesc && <p className={`text-sm font-medium mb-6 leading-relaxed relative z-10 whitespace-pre-wrap pb-4 border-b ${isConstant ? 'text-slate-700 border-slate-200' : 'text-purple-800/80 border-purple-200/50'}`}>{globalDesc}</p>}
-                    {localizedCollab && (
-                      <div className="relative z-10">
-                        <h4 className={`text-xs font-black uppercase tracking-wider mb-2 ${isConstant ? 'text-slate-500' : 'text-purple-700'}`}>{t('label_shop_collab', '店舗限定コラボ内容')}</h4>
-                        <p className={`font-bold whitespace-pre-wrap leading-relaxed p-4 rounded-xl border ${isConstant ? 'text-slate-900 bg-white border-slate-200' : 'text-gray-900 bg-white/60 border-purple-100'}`}>{localizedCollab}</p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          )}
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-12">
-            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-              <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-5">{t('label_info', '店舗情報')}</h3>
-              <ul className="space-y-4 text-gray-800 font-medium">
-                {displayHours && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">🕒</span> <span className="whitespace-pre-wrap leading-relaxed">{displayHours}</span></li>}
-                {restaurant.restaurant_area && restaurant.restaurant_area.length > 0 && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">🗺️</span> {restaurant.restaurant_area.map((a: string) => t(`tag_${a}`, a)).join('、 ')}</li>}
-                {restaurant.total_seats && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">🪑</span> {t('label_seats', '座席数: {{seats}}', { seats: restaurant.total_seats })}</li>}
-                {restaurant.avg_stay_time && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">⏳</span> {t('label_stay_time', '滞在時間: {{time}}', { time: restaurant.avg_stay_time })}</li>}
-                {restaurant.payment_methods && restaurant.payment_methods.length > 0 && <li className="flex items-start"><span className="w-6 text-xl mr-3 text-center">💳</span> {restaurant.payment_methods.map((p: string) => t(`tag_${p}`, p)).join('、 ')}</li>}
-                
-                {customFilterTypes.map(type => {
-                  const validTagsForType = allFilterOptions.filter(f => f.type === type).map(f => f.name);
-                  const values = restaurant.other_options?.filter((opt: string) => validTagsForType.includes(opt));
-                  
-                  if (!values || values.length === 0) return null;
-                  
-                  return (
-                    <li key={type} className="flex items-start">
-                      <span className="w-6 text-xl mr-3 text-center">✨</span> 
-                      <span>
-                        <span className="font-bold text-gray-500 mr-2">{type.charAt(0).toUpperCase() + type.slice(1)}:</span> 
-                        {values.map((v: string) => t(`tag_${v}`, v)).join('、 ')}
-                      </span>
-                    </li>
-                  );
-                })}
-
-                {/* PUBLIC VISIBILITY: Render any Custom Field mapping that is marked Public */}
-                {restaurant.custom_fields && Object.entries(restaurant.custom_fields).map(([key, value]) => {
-                  if (!value) return null; 
-
-                  const schemaBlock = formSchemaBlocks.find(b => b.dbColumn === `custom_fields.${key}`);
-                  const baseCol = formBaseColumns.find(c => c.id === `custom_fields.${key}`);
-                  
-                  if (!baseCol && (!schemaBlock || schemaBlock.isPublicCustomField === false)) return null;
-
-                  const displayLabel = baseCol?.label || schemaBlock?.label || key.replace(/_/g, ' ');
-                  const isUrl = typeof value === 'string' && (value.startsWith('http') || value.includes('supabase.co/storage'));
-
-                  if (isUrl) {
-                     return (
-                       <li key={key} className="flex flex-col items-start mt-4 mb-2">
-                         <span className="font-bold text-gray-500 mb-2 flex items-center"><span className="w-6 text-xl mr-3 text-center">📸</span> {displayLabel}</span> 
-                         <img src={value} alt={displayLabel} className="max-w-[200px] w-full object-cover rounded-xl shadow-sm border border-gray-200" />
-                       </li>
-                     );
-                  }
-
-                  return (
-                    <li key={key} className="flex items-start">
-                      <span className="w-6 text-xl mr-3 text-center">💡</span> 
-                      <span>
-                        <span className="font-bold text-gray-500 mr-2">{displayLabel}:</span> 
-                        <span className="whitespace-pre-wrap">
-                          {Array.isArray(value) ? value.join('、 ') : String(value)}
-                        </span>
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-            <div className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-               <h3 className="text-sm font-bold text-gray-400 uppercase tracking-wider mb-5">{t('filter_dietary', '食事制限')}</h3>
-               {restaurant.food_restrictions && restaurant.food_restrictions.length > 0 ? (
-                  <div className="flex flex-wrap gap-2">
-                    {restaurant.food_restrictions.map((res: string, i: number) => <span key={i} className="bg-green-100 text-green-800 text-sm font-bold px-4 py-2 rounded-xl border border-green-200">{t(`tag_${res}`, res)}</span>)}
-                  </div>
-               ) : <p className="text-gray-500 font-medium">{t('no_dietary_info', '特別な対応表記なし')}</p>}
-            </div>
-          </div>
-        </div>
-
-        {restaurant.address && (
-          <div className="bg-gray-50 border-t border-gray-200 p-8 md:p-12">
-            <div className="flex flex-col md:flex-row justify-between items-start md:items-end mb-6 gap-4">
-              <div>
-                <h2 className="text-2xl font-black text-gray-900 mb-2">{t('label_access', 'アクセス')}</h2>
-                <p className="text-gray-800 font-bold text-lg flex items-start"><span className="mr-2">📍</span> {restaurant.address}</p>
-              </div>
-              <a href={mapOutboundLink || '#'} target="_blank" rel="noopener noreferrer" className="bg-gray-900 text-white font-bold px-6 py-3 rounded-xl hover:bg-gray-800 transition shadow-md whitespace-nowrap">{t('btn_open_map', 'マップアプリで開く ↗')}</a>
-            </div>
-            {mapEmbedUrl && (
-              <div className="w-full h-80 md:h-96 rounded-3xl overflow-hidden border border-gray-200 shadow-inner bg-gray-200 mt-6">
-                <iframe title={`Map of ${displayTitle}`} width="100%" height="100%" frameBorder="0" style={{ border: 0 }} src={mapEmbedUrl} allowFullScreen loading="lazy" referrerPolicy="no-referrer-when-downgrade"></iframe>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </>
+    </div>
   );
-}
+};
+
+export default function RegisterRestaurant() {
+  const [schema, setSchema] = useState<any>(null);
+  const [formData, setFormData] = useState<Record<string, any>>({ hours_source: 'Googleマップと同じ' });
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState('');
+  
+  // Delta Update State
+  const [isUpdateMode, setIsUpdateMode] = useState<boolean>(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<any[]>([]);
+  const [isSearching, setIsSearching] = useState(false);
+  const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
+
+  const [activeEvents, setActiveEvents] = useState<any[]>([]);
+  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
+  const [ads, setAds] = useState<any[]>([]);
+  const [mounted, setMounted] = useState(false);
+  const [isIframe, setIsIframe] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+    setIsIframe(window.self !== window.top);
+
+    const fetchData = async () => {
+      try {
+        const [schemaRes, eventsRes, adsRes] = await Promise.all([
+          supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle(),
+          supabase.from('custom_categories').select('*').order('created_at'),
+          supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/register'])
+        ]);
+
+        if (schemaRes.data?.data?.sections?.length > 0) setSchema(schemaRes.data.data);
+        else setSchema(BASELINE_SCHEMA);
+
+        if (eventsRes.data) {
+          const today = new Date().toISOString().split('T')[0]; 
+          const validEvents = eventsRes.data.filter(e => {
+            if (e.is_constant) return true;
+            const start = e.start_date ? e.start_date.split('T')[0] : null;
+            const end = e.end_date ? e.end_date.split('T')[0] : null;
+            if (start && end) return today >= start && today <= end;
+            if (start) return today >= start;
+            if (end) return today <= end;
+            return true;
+          });
+          setActiveEvents(validEvents);
+        }
+        if (adsRes.data) setAds(adsRes.data);
+      } catch (err) {
+        setSchema(BASELINE_SCHEMA);
+      }
+    };
+    fetchData();
+  }, []);
+
+  useEffect(() => {
+    const delayDebounceFn = setTimeout(async () => {
+      if (searchQuery.trim().length > 1 && !updateTargetId) {
+        setIsSearching(true);
+        const { data } = await supabase.from('restaurants').select('id, title, address').eq('status', 'approved').ilike('title', `%${searchQuery}%`).limit(10);
+        setSearchResults(data || []);
+        setIsSearching(false);
+      } else {
+        setSearchResults([]);
+      }
+    }, 300);
+    return () => clearTimeout(delayDebounceFn);
+  }, [searchQuery, updateTargetId]);
+
+  const handleSelectRestaurantToUpdate = async (restaurant: any) => {
+    setUpdateTargetId(restaurant.id);
+    setSearchQuery(restaurant.title);
+    setSearchResults([]);
+    setLoading(true);
+
+    const { data, error } = await supabase.from('restaurants').select(SAFE_UPDATE_COLUMNS).eq('id', restaurant.id).single();
+    
+    setLoading(false);
+    if (data) {
+      const newFormData: any = {};
+      Object.keys(data).forEach(key => {
+        if (key !== 'custom_fields' && key !== 'other_options') newFormData[key] = data[key];
+      });
+      if (data.custom_fields) {
+        Object.keys(data.custom_fields).forEach(key => { newFormData[`custom_fields.${key}`] = data.custom_fields[key]; });
+      }
+      if (!newFormData.hours_source) newFormData.hours_source = data.operating_hours || 'Googleマップと同じ';
+      
+      setFormData(newFormData);
+      setSelectedEvents(data.other_options || []);
+    } else if (error) {
+      setMessage(`データの取得に失敗しました: ${error.message}`);
+    }
+  };
+
+  const handleInputChange = (dbColumn: string, value: any) => setFormData(prev => ({ ...prev, [dbColumn]: value }));
+
+  const handleCheckboxArray = (dbColumn: string, option: string, isChecked: boolean) => {
+    setFormData(prev => {
+      const currentArray = prev[dbColumn] || [];
+      if (isChecked) return { ...prev, [dbColumn]: [...currentArray, option] };
+      return { ...prev, [dbColumn]: currentArray.filter((o: string) => o !== option) };
+    });
+  };
+
+  const handleEventToggle = (eventName: string, isChecked: boolean) => {
+    if (isChecked) setSelectedEvents(prev => [...prev, eventName]);
+    else setSelectedEvents(prev => prev.filter(e => e !== eventName));
+  };
+
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setLoading(true);
+    setMessage('');
+
+    const payload: any = { status: 'pending', custom_fields: {}, other_options: selectedEvents };
+    
+    if (isUpdateMode && updateTargetId) {
+      payload.custom_fields.update_target_id = updateTargetId;
+      payload.custom_fields.update_target_name = searchQuery;
+    }
+    
+    for (const key of Object.keys(formData)) {
+      if (key.startsWith('hours_') && key !== 'hours_source') continue;
+      
+      const value = formData[key];
+      
+      if (value instanceof File || (Array.isArray(value) && value[0] instanceof File)) {
+        const files = Array.isArray(value) ? value : [value];
+        const uploadedUrls: string[] = [];
+
+        for (const file of files) {
+          const fileExt = file.name.split('.').pop();
+          const fileName = `public-upload-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
+          try {
+            const { error: uploadError } = await supabase.storage.from('restaurant-images').upload(fileName, file);
+            if (uploadError) throw uploadError;
+            const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
+            uploadedUrls.push(publicData.publicUrl);
+          } catch (uploadErr: any) {
+            setMessage(`Image upload failed: ${uploadErr.message}`);
+            setLoading(false);
+            return;
+          }
+        }
+        
+        const finalUrlData = key === 'image_urls' ? uploadedUrls : uploadedUrls[0];
+        if (key.startsWith('custom_fields.')) payload.custom_fields[key.replace('custom_fields.', '')] = finalUrlData;
+        else payload[key] = finalUrlData;
+        continue;
+      }
+
+      if (key.startsWith('custom_fields.')) payload.custom_fields[key.replace('custom_fields.', '')] = value;
+      else payload[key] = value;
+    }
+
+    let finalHours: any = '';
+    const hSource = formData['hours_source'];
+    if (hSource === 'ここで手動で入力する') {
+      const hoursObj: Record<string, string> = {};
+      DAYS.forEach(day => { hoursObj[day] = formData[`hours_${day}`] || ''; });
+      finalHours = JSON.stringify(hoursObj);
+    } else {
+      finalHours = hSource || '';
+    }
