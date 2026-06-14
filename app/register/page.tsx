@@ -1,4 +1,3 @@
-// /app/register/page.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
@@ -453,6 +452,7 @@ export default function RegisterRestaurant() {
           </div>
         )}
 
+        {/* --- DELTA UPDATE TOGGLE SECTION --- */}
         <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200 mb-8">
           <h2 className="text-2xl font-black text-gray-900 mb-4 border-b pb-4">登録の種類</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
@@ -470,6 +470,7 @@ export default function RegisterRestaurant() {
             </label>
           </div>
 
+          {/* DELTA UPDATE SEARCH BAR */}
           {isUpdateMode && (
             <div className="bg-orange-50/50 p-6 rounded-2xl border border-orange-100 animate-in fade-in zoom-in-95 duration-200">
               <label className="block text-sm font-bold text-gray-800 mb-2">更新する店舗を検索してください</label>
@@ -484,6 +485,7 @@ export default function RegisterRestaurant() {
                 {isSearching && <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-orange-500 font-bold text-sm animate-pulse">検索中...</span>}
               </div>
               
+              {/* SEARCH RESULTS DROPDOWN */}
               {searchResults.length > 0 && !updateTargetId && (
                 <div className="mt-2 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-60 overflow-y-auto">
                   {searchResults.map(res => (
