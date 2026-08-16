@@ -641,4 +641,4 @@ export default function RegisterRestaurant() {
       </div>
     </div>
   );
-}
+}　

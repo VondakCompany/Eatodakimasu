@@ -259,4 +259,4 @@ export default function RestaurantPage({ params }: { params: { id: string } }) {
       </div>
     </div>
   );
-}
+}　

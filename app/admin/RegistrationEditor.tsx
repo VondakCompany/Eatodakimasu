@@ -1079,4 +1079,4 @@ export function RegistrationEditor() {
       )}
     </div>
   );
-}
+}　
