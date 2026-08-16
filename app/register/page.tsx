@@ -1,3 +1,4 @@
+// /app/register/page.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
@@ -5,7 +6,7 @@ import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
 
 // SECURE: Explicitly excluding private admin columns from the delta update fetch
-const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options';
+const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options, menu_items';
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
 
@@ -21,8 +22,60 @@ const BASELINE_SCHEMA = {
         { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
         { id: "b_address", type: "text", label: "住所 (🌐 サイト公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
       ]
+    },
+    {
+      id: "sec_menu",
+      title: "2. 詳細メニュー",
+      description: "店舗の代表的なメニューを追加してください。",
+      blocks: [
+        { id: "b_menu_table", type: "menu_builder", label: "詳細メニュー登録", dbColumn: "menu_items", required: false }
+      ]
     }
   ]
+};
+
+// --- DYNAMIC MENU BUILDER COMPONENT ---
+const MenuBuilder = ({ block, onChange, currentValue }: { block: any, onChange: (val: any) => void, currentValue: any }) => {
+  const [items, setItems] = useState<any[]>(Array.isArray(currentValue) && currentValue.length > 0 ? currentValue : [{ name: '', price: '', description: '' }]);
+
+  const updateItem = (index: number, field: string, value: string | number) => {
+    const newItems = [...items];
+    newItems[index][field] = value;
+    setItems(newItems);
+    // Only push valid items up to formData
+    onChange(newItems.filter(i => i.name.trim() !== ''));
+  };
+
+  const addItem = () => setItems([...items, { name: '', price: '', description: '' }]);
+  const removeItem = (index: number) => {
+    const newItems = items.filter((_, i) => i !== index);
+    if (newItems.length === 0) newItems.push({ name: '', price: '', description: '' });
+    setItems(newItems);
+    onChange(newItems.filter(i => i.name.trim() !== ''));
+  };
+
+  return (
+    <div className="space-y-3 animate-in fade-in duration-300">
+      <label className="block text-sm font-bold text-gray-700 mb-2">
+        {block.label} {block.required && <span className="text-red-500">*</span>}
+      </label>
+      {items.map((item, idx) => (
+        <div key={idx} className="flex flex-col sm:flex-row gap-3 p-4 bg-white border border-gray-200 rounded-2xl shadow-sm">
+          <div className="flex-1 space-y-3">
+            <input type="text" placeholder="メニュー名 (Name)" value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+            <textarea placeholder="説明 (Description) - オプション" value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} rows={2} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+          </div>
+          <div className="w-full sm:w-32 flex flex-col gap-3">
+            <input type="number" placeholder="価格 (¥)" value={item.price} onChange={e => updateItem(idx, 'price', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+            <button type="button" onClick={() => removeItem(idx)} className="mt-auto py-3 bg-red-50 text-red-500 font-bold rounded-xl hover:bg-red-100 transition">削除</button>
+          </div>
+        </div>
+      ))}
+      <button type="button" onClick={addItem} className="w-full py-4 border-2 border-dashed border-gray-300 rounded-2xl text-gray-500 font-bold hover:bg-gray-50 hover:border-orange-400 hover:text-orange-500 transition">
+        + メニューを追加
+      </button>
+    </div>
+  );
 };
 
 // --- PUBLIC IMAGE UPLOADER COMPONENT ---
@@ -86,10 +139,10 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
       {previews.length > 0 ? (
         <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
           <div className="flex justify-between items-end mb-4">
-            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} uploaded</span>
+            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} 枚アップロード済み</span>
             {previews.length < maxLimit && (
               <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
-                + Add More
+                + 画像を追加
               </button>
             )}
           </div>
@@ -110,7 +163,7 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
             </svg>
           </div>
           <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
-            Tap to Upload {isMultiple ? `(Up to ${maxLimit} photos)` : 'Photo'}
+            タップして画像をアップロード {isMultiple ? `(最大 ${maxLimit} 枚)` : ''}
           </span>
           {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
         </button>
@@ -131,6 +184,11 @@ export default function RegisterRestaurant() {
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
+  
+  // Security Gate State
+  const [selectedTarget, setSelectedTarget] = useState<any>(null);
+  const [pinInput, setPinInput] = useState('');
+  const [pinError, setPinError] = useState('');
 
   const [activeEvents, setActiveEvents] = useState<any[]>([]);
   const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
@@ -176,7 +234,7 @@ export default function RegisterRestaurant() {
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
-      if (searchQuery.trim().length > 1 && !updateTargetId) {
+      if (searchQuery.trim().length > 1 && !updateTargetId && !selectedTarget) {
         setIsSearching(true);
         const { data } = await supabase.from('restaurants').select('id, title, address').eq('status', 'approved').ilike('title', `%${searchQuery}%`).limit(10);
         setSearchResults(data || []);
@@ -186,32 +244,54 @@ export default function RegisterRestaurant() {
       }
     }, 300);
     return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery, updateTargetId]);
+  }, [searchQuery, updateTargetId, selectedTarget]);
 
-  const handleSelectRestaurantToUpdate = async (restaurant: any) => {
-    setUpdateTargetId(restaurant.id);
-    setSearchQuery(restaurant.title);
+  const handleSelectSearchResult = (restaurant: any) => {
+    setSelectedTarget(restaurant);
     setSearchResults([]);
+    setSearchQuery(restaurant.title);
+    setPinInput('');
+    setPinError('');
+  };
+
+  const verifyPinAndLoad = async (restaurant: any) => {
+    setPinError('');
     setLoading(true);
 
     const { data, error } = await supabase.from('restaurants').select(SAFE_UPDATE_COLUMNS).eq('id', restaurant.id).single();
     
-    setLoading(false);
-    if (data) {
-      const newFormData: any = {};
-      Object.keys(data).forEach(key => {
-        if (key !== 'custom_fields' && key !== 'other_options') newFormData[key] = data[key];
-      });
-      if (data.custom_fields) {
-        Object.keys(data.custom_fields).forEach(key => { newFormData[`custom_fields.${key}`] = data.custom_fields[key]; });
-      }
-      if (!newFormData.hours_source) newFormData.hours_source = data.operating_hours || 'Googleマップと同じ';
-      
-      setFormData(newFormData);
-      setSelectedEvents(data.other_options || []);
-    } else if (error) {
-      setMessage(`データの取得に失敗しました: ${error.message}`);
+    if (error) {
+      setPinError(`データの取得に失敗しました: ${error.message}`);
+      setLoading(false);
+      return;
     }
+
+    const actualPin = data?.custom_fields?.edit_pin;
+
+    if (actualPin && actualPin !== pinInput) {
+      setPinError('PINコードが間違っています。');
+      setLoading(false);
+      return;
+    }
+
+    setLoading(false);
+    setUpdateTargetId(restaurant.id);
+    setSelectedTarget(null);
+    setPinInput('');
+    
+    const newFormData: any = {};
+    Object.keys(data).forEach(key => {
+      if (key !== 'custom_fields' && key !== 'other_options' && key !== 'id') newFormData[key] = data[key];
+    });
+    
+    if (data.custom_fields) {
+      Object.keys(data.custom_fields).forEach(key => { newFormData[`custom_fields.${key}`] = data.custom_fields[key]; });
+    }
+    
+    if (!newFormData.hours_source) newFormData.hours_source = data.operating_hours || 'Googleマップと同じ';
+    
+    setFormData(newFormData);
+    setSelectedEvents(data.other_options || []);
   };
 
   const handleInputChange = (dbColumn: string, value: any) => setFormData(prev => ({ ...prev, [dbColumn]: value }));
@@ -222,11 +302,6 @@ export default function RegisterRestaurant() {
       if (isChecked) return { ...prev, [dbColumn]: [...currentArray, option] };
       return { ...prev, [dbColumn]: currentArray.filter((o: string) => o !== option) };
     });
-  };
-
-  const handleEventToggle = (eventName: string, isChecked: boolean) => {
-    if (isChecked) setSelectedEvents(prev => [...prev, eventName]);
-    else setSelectedEvents(prev => prev.filter(e => e !== eventName));
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -242,6 +317,7 @@ export default function RegisterRestaurant() {
     }
     
     for (const key of Object.keys(formData)) {
+      if (key === 'id') continue; 
       if (key.startsWith('hours_') && key !== 'hours_source') continue;
       
       const value = formData[key];
@@ -259,7 +335,7 @@ export default function RegisterRestaurant() {
             const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
             uploadedUrls.push(publicData.publicUrl);
           } catch (uploadErr: any) {
-            setMessage(`Image upload failed: ${uploadErr.message}`);
+            setMessage(`画像のアップロードに失敗しました: ${uploadErr.message}`);
             setLoading(false);
             return;
           }
@@ -284,18 +360,20 @@ export default function RegisterRestaurant() {
     } else {
       finalHours = hSource || '';
     }
+    
     payload.operating_hours = finalHours;
 
     const { error } = await supabase.from('restaurants').insert([payload]);
 
     setLoading(false);
     if (error) {
-      setMessage(`Error occurred: ${error.message}`);
+      setMessage(`エラーが発生しました: ${error.message}`);
     } else {
-      setMessage('Information submitted successfully! Thank you for your cooperation.');
+      setMessage('情報が正常に送信されました！ご協力ありがとうございます。');
       setFormData({ hours_source: 'Googleマップと同じ' });
       setSelectedEvents([]);
       setUpdateTargetId(null);
+      setSelectedTarget(null);
       setSearchQuery('');
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
@@ -310,256 +388,256 @@ export default function RegisterRestaurant() {
 
     return (
       <div key={block.id} className="animate-in fade-in duration-300">
+        
+        {block.type === 'menu_builder' && (
+          <MenuBuilder block={block} onChange={(items) => handleInputChange(block.dbColumn, items)} currentValue={formData[block.dbColumn]} />
+        )}
+
         {block.type === 'hours_source' && (
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-500">*</span>}</label>
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <label className="block text-sm font-bold text-gray-700 mb-4">
+              {block.label} {block.required && <span className="text-red-500">*</span>}
+            </label>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
               {block.options?.map((opt: string) => (
-                <label key={opt} className="cursor-pointer">
-                  <input type="radio" required={block.required && !formData[block.dbColumn]} checked={formData[block.dbColumn] === opt} onChange={() => handleInputChange(block.dbColumn, opt)} className="peer sr-only" />
-                  <div className="px-4 py-4 rounded-xl border-2 border-gray-200 peer-checked:border-orange-500 peer-checked:bg-orange-50 text-center font-bold text-gray-600 peer-checked:text-orange-700 transition">
-                    {opt}
-                  </div>
+                <label key={opt} className={`flex items-center justify-center p-4 rounded-2xl border-2 cursor-pointer transition-all ${formData[block.dbColumn] === opt ? 'border-orange-500 bg-orange-50 text-orange-700 shadow-sm' : 'border-gray-200 bg-white text-gray-600 hover:border-gray-300 hover:bg-gray-50'}`}>
+                  <input type="radio" name={block.dbColumn} value={opt} checked={formData[block.dbColumn] === opt} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} className="hidden" />
+                  <span className="font-bold text-sm">{opt}</span>
                 </label>
               ))}
             </div>
           </div>
         )}
 
-        {block.type === 'operating_hours' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-gray-50 p-6 rounded-2xl border border-gray-200">
-            <p className="md:col-span-2 text-sm text-gray-500 mb-2 font-medium">※ 定休日の場合は未記入、営業日は「11:00〜14:00、17:00〜21:00」のようにご記入ください。</p>
-            {DAYS.map(day => (
-              <div key={day} className="flex items-center bg-white p-3 rounded-xl border border-gray-200 shadow-sm focus-within:ring-2 focus-within:ring-orange-500 transition">
-                 <span className="w-24 font-bold text-gray-700">{day}</span>
-                 <input type="text" value={formData[`hours_${day}`] || ''} onChange={(e) => handleInputChange(`hours_${day}`, e.target.value)} className="flex-grow px-3 py-2 bg-gray-50 border-none rounded-lg outline-none text-sm font-bold text-gray-800" placeholder="11:00〜20:00" />
-              </div>
-            ))}
+        {block.type === 'text' && (
+          <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              {block.label} {block.required && <span className="text-red-500">*</span>}
+            </label>
+            <input type={block.validation === 'number' ? 'number' : block.validation === 'email' ? 'email' : block.validation === 'url' ? 'url' : 'text'} value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} required={block.required} placeholder={block.placeholder} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition" />
           </div>
         )}
 
-        {block.type === 'photo_method' && (
+        {block.type === 'textarea' && (
+           <div>
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              {block.label} {block.required && <span className="text-red-500">*</span>}
+            </label>
+            <textarea value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} required={block.required} placeholder={block.placeholder} rows={4} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-medium text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition" />
+          </div>
+        )}
+
+        {block.type === 'select' && (
           <div>
-            <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-500">*</span>}</label>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <label className="block text-sm font-bold text-gray-700 mb-2">
+              {block.label} {block.required && <span className="text-red-500">*</span>}
+            </label>
+            <select value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} required={block.required} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition cursor-pointer">
+              <option value="" disabled>選択してください</option>
+              {block.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
+            </select>
+          </div>
+        )}
+
+        {(block.type === 'checkbox' || block.type === 'photo_method') && (
+           <div>
+            <label className="block text-sm font-bold text-gray-700 mb-3">
+              {block.label} {block.required && <span className="text-red-500">*</span>}
+            </label>
+            <div className="flex flex-wrap gap-3">
               {block.options?.map((opt: string) => {
-                const getSub = (o: string) => o.includes("メール") ? "eatodakimasu@gmail.com宛" : o.includes("HP") ? "HPのリンクを共有してください" : o.includes("スタッフ") ? "後日日程調整のご連絡をします" : "";
+                const isChecked = (formData[block.dbColumn] || []).includes(opt);
                 return (
-                  <label key={opt} className="cursor-pointer">
-                    <input type="radio" required={block.required && !formData[block.dbColumn]} checked={formData[block.dbColumn] === opt} onChange={() => handleInputChange(block.dbColumn, opt)} className="peer sr-only" />
-                    <div className="p-4 rounded-xl border-2 border-gray-200 peer-checked:border-orange-500 peer-checked:bg-orange-50 transition">
-                      <p className="font-bold text-gray-800 peer-checked:text-orange-900">{opt}</p>
-                      <p className="text-xs text-gray-500 mt-1">{getSub(opt)}</p>
-                    </div>
+                  <label key={opt} className={`flex items-center cursor-pointer p-3 rounded-xl border-2 transition-all ${isChecked ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    <input type="checkbox" checked={isChecked} onChange={(e) => handleCheckboxArray(block.dbColumn, opt, e.target.checked)} className="hidden" />
+                    <span className="font-bold text-sm">{opt}</span>
                   </label>
-                )
+                );
               })}
             </div>
-          </div>
-        )}
-
-        {!['hours_source', 'operating_hours', 'photo_method'].includes(block.type) && (
-          <div>
-            {block.type !== 'html' && (
-              <label className="block text-sm font-bold text-gray-700 mb-3">
-                {block.label} {block.required && <span className="text-red-500 ml-1">*</span>}
-              </label>
-            )}
-
-            {block.type === 'html' && <div className="prose prose-sm max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: block.content }} />}
-            {block.type === 'text' && <input type="text" required={block.required && !formData[block.dbColumn]} placeholder={block.placeholder} value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none transition" />}
-            {block.type === 'textarea' && <textarea rows={4} required={block.required && !formData[block.dbColumn]} placeholder={block.placeholder} value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} className="w-full px-5 py-4 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none transition" />}
-            
-            {block.type === 'select' && (
-              <select required={block.required && !formData[block.dbColumn]} value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} className="w-full px-5 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:bg-white focus:ring-2 focus:ring-orange-500 outline-none cursor-pointer font-bold text-gray-700">
-                <option value="">選択してください</option>
-                {block.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
-              </select>
-            )}
-
-            {(block.type === 'checkbox' || block.type === 'radio') && (
-              <div className="flex flex-wrap gap-3">
-                {block.options?.map((opt: string) => {
-                  const isChecked = block.type === 'checkbox' ? (formData[block.dbColumn] || []).includes(opt) : formData[block.dbColumn] === opt;
-                  return (
-                    <label key={opt} className="cursor-pointer">
-                      <input type={block.type} required={block.required && !formData[block.dbColumn] && block.type === 'radio'} className="peer sr-only" checked={isChecked} onChange={(e) => block.type === 'checkbox' ? handleCheckboxArray(block.dbColumn, opt, e.target.checked) : handleInputChange(block.dbColumn, opt)} />
-                      <div className="px-4 py-2 rounded-lg border border-gray-200 peer-checked:bg-orange-600 peer-checked:text-white peer-checked:border-orange-600 text-sm font-bold text-gray-600 transition shadow-sm hover:bg-gray-50">{opt}</div>
-                    </label>
-                  )
-                })}
-              </div>
-            )}
-
-            {block.type === 'image_upload' && (
-              <PublicImageUploader 
-                block={block} 
-                currentValue={formData[block.dbColumn]}
-                onImageSelected={(file) => handleInputChange(block.dbColumn, file)}
-              />
-            )}
-          </div>
-        )}
-
-        {activeCondition && activeCondition.blocks?.length > 0 && (
-           <div className="mt-6 ml-4 md:ml-6 pl-4 md:pl-6 border-l-[3px] border-orange-300 space-y-8 relative">
-              {activeCondition.blocks.map((childBlock: any) => renderFormBlock(childBlock))}
            </div>
+        )}
+
+        {block.type === 'radio' && (
+           <div>
+            <label className="block text-sm font-bold text-gray-700 mb-3">
+              {block.label} {block.required && <span className="text-red-500">*</span>}
+            </label>
+            <div className="flex flex-wrap gap-3">
+              {block.options?.map((opt: string) => {
+                const isChecked = formData[block.dbColumn] === opt;
+                return (
+                  <label key={opt} className={`flex items-center cursor-pointer p-3 rounded-xl border-2 transition-all ${isChecked ? 'border-orange-500 bg-orange-50 text-orange-700' : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'}`}>
+                    <input type="radio" name={block.dbColumn} value={opt} checked={isChecked} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} className="hidden" />
+                    <span className="font-bold text-sm">{opt}</span>
+                  </label>
+                );
+              })}
+            </div>
+           </div>
+        )}
+
+        {block.type === 'operating_hours' && (
+           <div>
+             <label className="block text-sm font-bold text-gray-700 mb-4">
+              {block.label} {block.required && <span className="text-red-500">*</span>}
+            </label>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-gray-50 p-6 rounded-[24px] border border-gray-200">
+               {DAYS.map(day => (
+                 <div key={day} className="flex items-center gap-3">
+                    <span className="w-16 font-bold text-gray-600 text-sm text-right">{day}</span>
+                    <input type="text" value={formData[`hours_${day}`] || ''} onChange={(e) => handleInputChange(`hours_${day}`, e.target.value)} placeholder="例: 11:00〜22:00" className="flex-1 p-3 bg-white border border-gray-200 rounded-xl text-sm font-bold outline-none focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition" />
+                 </div>
+               ))}
+             </div>
+           </div>
+        )}
+
+        {block.type === 'image_upload' && (
+          <div>
+             <label className="block text-sm font-bold text-gray-700 mb-2">
+              {block.label} {block.required && <span className="text-red-500">*</span>}
+            </label>
+            <PublicImageUploader block={block} onImageSelected={(files) => handleInputChange(block.dbColumn, files)} currentValue={formData[block.dbColumn]} />
+          </div>
+        )}
+
+        {block.type === 'html' && (
+          <div className="prose max-w-none text-gray-700" dangerouslySetInnerHTML={{ __html: block.content || '' }} />
+        )}
+
+        {activeCondition && (
+          <div className="mt-6 pl-6 border-l-2 border-orange-200 space-y-6">
+            {activeCondition.blocks.map((childBlock: any) => renderFormBlock(childBlock))}
+          </div>
         )}
       </div>
     );
   };
 
-  if (!schema) return <div className="text-center py-20 font-black tracking-widest text-gray-400 animate-pulse">LOADING FORM...</div>;
+  if (!mounted || !schema) return null;
 
   return (
-    <div className="w-full relative">
-      {mounted && !isIframe && createPortal(
-        <>
-          <div className="hidden lg:block absolute top-0 left-1/2 transform -translate-x-1/2 w-[1600px] h-0 z-40 pointer-events-none">
-            {ads.map(ad => (
-              <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="absolute pointer-events-auto rounded-[1.5rem] overflow-hidden transition hover:opacity-90 bg-gray-50 shadow-lg" style={{ left: ad.x, top: ad.y, width: ad.w, height: ad.h }}>
-                <img src={ad.image_url} className="w-full h-full object-cover" alt="Advertisement" />
-              </a>
-            ))}
-          </div>
-          <div className="lg:hidden fixed bottom-0 left-0 right-0 z-50 pointer-events-none">
-            {ads.filter(a => a.mobile_fallback === 'sticky').map(ad => (
-              <a key={ad.id} href={ad.action_url || '#'} target="_blank" rel="noopener noreferrer" className="w-full h-20 bg-white flex items-center px-5 gap-4 border-t border-gray-200 pointer-events-auto shadow-[0_-10px_40px_rgba(0,0,0,0.1)]">
-                <img src={ad.image_url} className="w-12 h-12 rounded-xl object-cover" alt="Sponsored" />
-                <div className="flex flex-col flex-1 truncate">
-                  <span className="font-black text-sm text-gray-900">Special Promo</span>
-                  <span className="font-bold text-[10px] text-gray-400 uppercase tracking-wide">Sponsored</span>
-                </div>
-                <span className="bg-indigo-600 text-white px-5 py-2.5 rounded-full text-xs font-black">Open</span>
-              </a>
-            ))}
-          </div>
-        </>,
-        document.body
-      )}
-
-      <div className="max-w-4xl mx-auto py-8 px-4 relative z-10">
-        
-        <div className="bg-gradient-to-r from-orange-600 to-orange-500 rounded-3xl p-8 md:p-12 text-white shadow-lg mb-8">
-          <h1 className="text-3xl md:text-4xl font-black mb-4 tracking-tight">{schema.pageTitle}</h1>
-          <p className="text-orange-50 font-medium leading-relaxed whitespace-pre-line">{schema.pageDescription}</p>
+    <div className={`min-h-screen bg-gray-50 ${isIframe ? 'p-4' : 'py-12 px-4'}`}>
+      <div className="max-w-3xl mx-auto space-y-8">
+        <div className="bg-white p-8 md:p-12 rounded-[40px] shadow-sm border border-gray-200">
+          <h1 className="text-3xl md:text-4xl font-black text-gray-900 tracking-tight mb-6">{schema.pageTitle}</h1>
+          <p className="text-gray-600 font-medium whitespace-pre-wrap leading-relaxed">{schema.pageDescription}</p>
         </div>
 
-        {message && (
-          <div className={`p-5 mb-8 rounded-2xl font-bold text-center shadow-sm ${message.includes('エラー') || message.includes('failed') ? 'bg-red-50 text-red-700 border border-red-200' : 'bg-green-50 text-green-800 border border-green-200'}`}>
-            {message}
-          </div>
-        )}
-
-        {/* --- DELTA UPDATE TOGGLE SECTION --- */}
-        <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200 mb-8">
-          <h2 className="text-2xl font-black text-gray-900 mb-4 border-b pb-4">登録の種類</h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-            <label className="cursor-pointer">
-              <input type="radio" checked={!isUpdateMode} onChange={() => { setIsUpdateMode(false); setUpdateTargetId(null); setSearchQuery(''); setFormData({ hours_source: 'Googleマップと同じ' }); }} className="peer sr-only" />
-              <div className="px-4 py-4 rounded-xl border-2 border-gray-200 peer-checked:border-orange-500 peer-checked:bg-orange-50 text-center font-bold text-gray-600 peer-checked:text-orange-700 transition shadow-sm">
-                新しい店舗を登録する
-              </div>
-            </label>
-            <label className="cursor-pointer">
-              <input type="radio" checked={isUpdateMode} onChange={() => setIsUpdateMode(true)} className="peer sr-only" />
-              <div className="px-4 py-4 rounded-xl border-2 border-gray-200 peer-checked:border-orange-500 peer-checked:bg-orange-50 text-center font-bold text-gray-600 peer-checked:text-orange-700 transition shadow-sm">
-                既存の店舗情報を更新する
-              </div>
-            </label>
-          </div>
-
-          {/* DELTA UPDATE SEARCH BAR */}
-          {isUpdateMode && (
-            <div className="bg-orange-50/50 p-6 rounded-2xl border border-orange-100 animate-in fade-in zoom-in-95 duration-200">
-              <label className="block text-sm font-bold text-gray-800 mb-2">更新する店舗を検索してください</label>
+        <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200">
+           <div className="flex flex-wrap gap-4 mb-6 bg-gray-100 p-1.5 rounded-2xl w-fit">
+              <button type="button" onClick={() => { setIsUpdateMode(false); setUpdateTargetId(null); setSelectedTarget(null); setFormData({ hours_source: 'Googleマップと同じ' }); }} className={`px-6 py-2.5 rounded-xl font-black text-sm transition ${!isUpdateMode ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>新規登録</button>
+              <button type="button" onClick={() => setIsUpdateMode(true)} className={`px-6 py-2.5 rounded-xl font-black text-sm transition ${isUpdateMode ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>既存店舗の情報を更新</button>
+           </div>
+           
+           {isUpdateMode && !updateTargetId && !selectedTarget && (
               <div className="relative">
-                <input 
-                  type="text" 
-                  value={searchQuery}
-                  onChange={(e) => { setSearchQuery(e.target.value); setUpdateTargetId(null); }}
-                  placeholder="店舗名を入力..." 
-                  className="w-full px-5 py-3 bg-white border border-gray-300 rounded-xl focus:ring-2 focus:ring-orange-500 outline-none font-bold text-gray-800 shadow-sm"
-                />
-                {isSearching && <span className="absolute right-4 top-1/2 transform -translate-y-1/2 text-orange-500 font-bold text-sm animate-pulse">検索中...</span>}
+                <label className="block text-sm font-bold text-gray-700 mb-2">情報を更新する店舗を検索してください:</label>
+                <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="店舗名を入力..." className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500" />
+                {isSearching && <div className="text-xs font-bold text-gray-400 mt-2">データベースを検索中...</div>}
+                {searchResults.length > 0 && (
+                   <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 shadow-xl rounded-2xl overflow-hidden z-50">
+                      {searchResults.map(res => (
+                         <button key={res.id} type="button" onClick={() => handleSelectSearchResult(res)} className="w-full text-left p-4 hover:bg-orange-50 border-b border-gray-100 last:border-0 transition">
+                            <div className="font-black text-gray-900">{res.title}</div>
+                            <div className="text-xs text-gray-500 truncate">{res.address}</div>
+                         </button>
+                      ))}
+                   </div>
+                )}
               </div>
-              
-              {/* SEARCH RESULTS DROPDOWN */}
-              {searchResults.length > 0 && !updateTargetId && (
-                <div className="mt-2 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden max-h-60 overflow-y-auto">
-                  {searchResults.map(res => (
-                    <button 
-                      key={res.id} 
-                      type="button"
-                      onClick={() => handleSelectRestaurantToUpdate(res)}
-                      className="w-full text-left px-5 py-3 border-b border-gray-100 hover:bg-orange-50 focus:bg-orange-50 transition"
-                    >
-                      <div className="font-bold text-gray-900">{res.title}</div>
-                      <div className="text-xs text-gray-500 truncate">{res.address}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
+           )}
 
-              {updateTargetId && (
-                <div className="mt-4 p-4 bg-green-50 border border-green-200 rounded-xl flex items-center justify-between">
-                  <div className="flex flex-col">
-                    <span className="text-green-800 font-black text-sm">✓ 店舗データ読み込み完了 (Public data only)</span>
-                    <span className="text-green-600 text-xs font-bold mt-1">以下のフォームに現在の情報が入力されています。修正箇所を書き換えて送信してください。</span>
-                  </div>
-                  <button type="button" onClick={() => { setUpdateTargetId(null); setSearchQuery(''); setFormData({ hours_source: 'Googleマップと同じ' }); }} className="text-sm font-bold bg-white text-green-700 px-3 py-1.5 rounded-lg border border-green-200 hover:bg-green-100 transition">変更</button>
-                </div>
-              )}
-            </div>
-          )}
-        </section>
+           {isUpdateMode && selectedTarget && !updateTargetId && (
+              <div className="bg-orange-50 border border-orange-200 p-8 rounded-[32px] text-center animate-in zoom-in-95 duration-200">
+                 <h3 className="text-xl font-black text-orange-900 mb-2">{selectedTarget.title}</h3>
+                 <p className="text-orange-700 text-sm font-bold mb-6">情報を更新するには、登録時に設定した4桁のPINコードを入力してください。</p>
+                 <div className="flex flex-col items-center gap-4">
+                    <input 
+                      type="password" 
+                      maxLength={4} 
+                      value={pinInput} 
+                      onChange={e => setPinInput(e.target.value.replace(/\D/g, ''))} 
+                      placeholder="PIN" 
+                      className="w-32 p-4 text-center text-2xl tracking-[0.5em] font-black border-2 border-orange-300 rounded-2xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-200" 
+                    />
+                    {pinError && <p className="text-red-500 font-bold text-xs bg-red-50 px-3 py-1 rounded-md">{pinError}</p>}
+                    <div className="flex gap-3 mt-2">
+                      <button type="button" onClick={() => setSelectedTarget(null)} className="px-6 py-3 bg-white text-gray-600 font-bold rounded-xl border border-gray-200 hover:bg-gray-50 transition">キャンセル</button>
+                      <button type="button" onClick={() => verifyPinAndLoad(selectedTarget)} disabled={loading || pinInput.length < 4} className="px-6 py-3 bg-orange-600 text-white font-black rounded-xl hover:bg-orange-700 transition shadow-md disabled:opacity-50">認証する</button>
+                    </div>
+                 </div>
+              </div>
+           )}
 
-        <form id="registration-form" onSubmit={handleSubmit} className={`space-y-8 transition-opacity duration-300 ${isUpdateMode && !updateTargetId ? 'opacity-30 pointer-events-none' : 'opacity-100'}`}>
-          {schema.sections.map((section: any, index: number) => (
-            <div key={section.id} className="space-y-8">
-              <section className="bg-white p-8 md:p-10 rounded-3xl shadow-sm border border-gray-200">
-                <h2 className="text-2xl font-black text-gray-900 mb-2 border-b pb-4">{index + 1}. {section.title}</h2>
-                {section.description && <p className="text-gray-500 text-sm font-medium mb-6 whitespace-pre-line">{section.description}</p>}
+           {isUpdateMode && updateTargetId && (
+              <div className="bg-orange-50 border border-orange-200 p-5 rounded-[24px] flex flex-wrap justify-between items-center gap-4 animate-in fade-in duration-300">
+                 <div>
+                    <div className="text-xs font-black text-orange-600 uppercase tracking-widest mb-1 flex items-center gap-2">
+                       <span className="relative flex h-2 w-2">
+                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
+                         <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
+                       </span>
+                       更新対象の店舗
+                    </div>
+                    <div className="font-black text-gray-900 text-lg">{searchQuery}</div>
+                 </div>
+                 <button type="button" onClick={() => { setUpdateTargetId(null); setSelectedTarget(null); setSearchQuery(''); setFormData({ hours_source: 'Googleマップと同じ' }); }} className="text-xs font-bold bg-white text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 shadow-sm transition">変更・キャンセル</button>
+              </div>
+           )}
+        </div>
+
+        {(!isUpdateMode || updateTargetId) && (
+          <form onSubmit={handleSubmit} className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
+            {schema.sections.map((section: any) => (
+              <div key={section.id} className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200">
+                <h2 className="text-2xl font-black text-gray-900 mb-2">{section.title}</h2>
+                {section.description && <p className="text-gray-500 text-sm font-bold mb-8">{section.description}</p>}
                 
-                <div className="space-y-8 mt-6">
+                <div className="space-y-8">
                   {section.blocks.map((block: any) => renderFormBlock(block))}
                 </div>
-              </section>
+              </div>
+            ))}
 
-              {index === 0 && activeEvents.length > 0 && (
-                <section className="p-8 md:p-10 bg-purple-50 border border-purple-100 rounded-[32px] space-y-6">
-                  <div className="mb-2">
-                    <h2 className="text-2xl font-black text-purple-900 mb-2 flex items-center gap-2"><span>🎉</span> 参加イベント・キャンペーン</h2>
-                    <p className="text-sm font-medium text-purple-800/80">イベントに参加している場合はチェックを入れてください。</p>
-                  </div>
-                  <div className="flex flex-col gap-3">
-                    {activeEvents.map(event => (
-                      <label key={event.id} className="flex items-start cursor-pointer p-4 rounded-2xl border border-purple-200 bg-white hover:bg-purple-50 hover:border-purple-300 transition-all duration-200 shadow-sm">
-                        <div className="flex items-center h-6 mt-1">
-                          <input type="checkbox" checked={selectedEvents.includes(event.name)} onChange={(e) => handleEventToggle(event.name, e.target.checked)} className="w-5 h-5 accent-purple-600 rounded" />
-                        </div>
-                        <div className="ml-4 flex-1">
-                          <div className="flex items-center gap-2 mb-1">
-                            <span className={`text-xs font-black px-2.5 py-0.5 rounded-full uppercase tracking-wider ${event.is_constant ? 'bg-slate-200 text-slate-800' : 'bg-purple-200 text-purple-900'}`}>
-                              {event.is_constant ? '📌 常設 / Permanent' : '⏰ 期間限定 / Seasonal'}
-                            </span>
-                          </div>
-                          <span className="font-black text-gray-900 text-lg">{event.name}</span>
-                          {event.description && <p className="text-sm text-gray-600 mt-1 line-clamp-2">{event.description}</p>}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </section>
-              )}
+            {/* MANDATORY SECURITY PIN BLOCK */}
+            <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200">
+              <h2 className="text-2xl font-black text-gray-900 mb-2 flex items-center gap-2">
+                <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
+                セキュリティ
+              </h2>
+              <p className="text-gray-500 text-sm font-bold mb-6">
+                次回以降、店舗情報を更新・修正する際に必要な暗証番号を設定してください。<br/>
+                <span className="text-xs font-medium opacity-80">(今後の店舗情報の更新に必要な4桁のPINコードを設定してください)</span>
+              </p>
+              <div>
+                <label className="block text-sm font-bold text-gray-700 mb-2">更新用PINコード <span className="text-red-500">*</span></label>
+                <input 
+                  type="text" 
+                  maxLength={4}
+                  pattern="\d{4}"
+                  required
+                  value={formData['custom_fields.edit_pin'] || ''} 
+                  onChange={(e) => handleInputChange('custom_fields.edit_pin', e.target.value.replace(/\D/g, ''))} 
+                  placeholder="例: 1234" 
+                  className="w-full max-w-[200px] p-4 bg-gray-50 border border-gray-200 rounded-2xl font-black text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition tracking-[0.5em] text-center text-2xl" 
+                />
+              </div>
             </div>
-          ))}
 
-          <button type="submit" disabled={loading} className="w-full bg-gradient-to-r from-orange-600 to-orange-500 text-white text-xl font-black py-5 px-6 rounded-2xl hover:from-orange-700 hover:to-orange-600 transition shadow-lg hover:shadow-xl disabled:opacity-50 transform hover:-translate-y-1">
-            {loading ? '送信中... (Submitting)' : isUpdateMode ? '更新内容を送信する' : 'この内容で店舗を登録する'}
-          </button>
-        </form>
+            <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200 text-center">
+               {message && (
+                 <div className={`p-4 rounded-2xl mb-6 font-bold text-sm ${message.includes('エラー') || message.includes('失敗') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
+                   {message}
+                 </div>
+               )}
+               <button type="submit" disabled={loading} className="w-full md:w-auto px-12 py-5 bg-orange-600 text-white font-black rounded-full hover:bg-orange-700 shadow-xl shadow-orange-600/20 transition-all transform hover:-translate-y-1 disabled:opacity-50 text-lg">
+                 {loading ? '送信中...' : '店舗情報を送信する'}
+               </button>
+            </div>
+          </form>
+        )}
       </div>
     </div>
   );

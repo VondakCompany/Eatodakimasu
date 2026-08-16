@@ -1,4 +1,4 @@
-// /app/admin/page.tsx
+// app/admin/page.tsx
 
 'use client';
 import { useEffect, useState, useRef } from 'react';
@@ -41,6 +41,7 @@ export default function AdminDashboard() {
   const [formBaseColumns, setFormBaseColumns] = useState<any[]>([]);
   
   const [editingData, setEditingData] = useState<any | null>(null);
+  const [deltaTargetData, setDeltaTargetData] = useState<any | null>(null);
   const [showHiddenFields, setShowHiddenFields] = useState(false);
   const editingDataRef = useRef<any>(null); 
   
@@ -384,14 +385,49 @@ export default function AdminDashboard() {
   };
 
   const updateStatus = async (restaurant: any, newStatus: string) => {
-    if (confirm(`Change status of "${restaurant.title}" to ${newStatus}?`)) {
+    const isDeltaUpdate = restaurant.custom_fields?.update_target_id;
+    const targetId = isDeltaUpdate ? restaurant.custom_fields.update_target_id : restaurant.id;
+    
+    const msg = isDeltaUpdate && newStatus === 'approved'
+      ? `This is a Delta Update for "${restaurant.custom_fields.update_target_name}".\n\nApproving will OVERWRITE the live database entry for this restaurant. Proceed?` 
+      : `Change status of "${restaurant.title}" to ${newStatus}?`;
+
+    if (confirm(msg)) {
       setLoading(true);
-      let updates: any = { status: newStatus };
-      if (newStatus === 'approved' && restaurant.address && !restaurant.lat) {
-        const { lat, lng } = await geocodeAddress(restaurant.address);
-        if (lat && lng) { updates.lat = lat; updates.lng = lng; }
+      
+      if (isDeltaUpdate && newStatus === 'approved') {
+         const { id, created_at, status, custom_fields, ...mergeData } = restaurant;
+         
+         if (mergeData.address && !mergeData.lat) {
+            const { lat, lng } = await geocodeAddress(mergeData.address);
+            if (lat && lng) { mergeData.lat = lat; mergeData.lng = lng; }
+         }
+
+         const cleanedCustomFields = { ...custom_fields };
+         delete cleanedCustomFields.update_target_id;
+         delete cleanedCustomFields.update_target_name;
+
+         const { error: mergeError } = await supabase.from('restaurants').update({ 
+             ...mergeData, 
+             custom_fields: cleanedCustomFields 
+         }).eq('id', targetId);
+         
+         if (mergeError) {
+           alert(`Failed to merge update: ${mergeError.message}`);
+         } else {
+           await supabase.from('restaurants').delete().eq('id', restaurant.id);
+           alert("✅ Delta Update successfully merged into live database!");
+         }
+
+      } else {
+        let updates: any = { status: newStatus };
+        if (newStatus === 'approved' && restaurant.address && !restaurant.lat) {
+          const { lat, lng } = await geocodeAddress(restaurant.address);
+          if (lat && lng) { updates.lat = lat; updates.lng = lng; }
+        }
+        await supabase.from('restaurants').update(updates).eq('id', restaurant.id);
       }
-      await supabase.from('restaurants').update(updates).eq('id', restaurant.id);
+      
       fetchAllData();
     }
   };
@@ -488,6 +524,15 @@ export default function AdminDashboard() {
       }
     }
     setEditingData({ ...restaurant, operating_hours: parsedHours });
+
+    // Identify if this is a Delta Update and fetch the live target data for diffing
+    if (restaurant.custom_fields?.update_target_id) {
+       const targetId = restaurant.custom_fields.update_target_id;
+       const target = liveRestaurants.find(r => r.id === targetId);
+       setDeltaTargetData(target || null);
+    } else {
+       setDeltaTargetData(null);
+    }
   };
 
   const saveEdits = async (currentData: any) => {
@@ -515,7 +560,7 @@ export default function AdminDashboard() {
     const { error } = await supabase.from('restaurants').update(updates).eq('id', id);
     setLoading(false);
     if (error) alert(`Database Error:\n${error.message}`);
-    else { alert(`✅ Saved Successfully!`); setEditingData(null); fetchAllData(); }
+    else { alert(`✅ Saved Successfully!`); setEditingData(null); setDeltaTargetData(null); fetchAllData(); }
   };
 
   const hasAccess = (tabId: string) => {
@@ -572,6 +617,21 @@ export default function AdminDashboard() {
 
   const allRestaurantsList = [...liveRestaurants, ...pendingSubmissions];
   const dynamicFilterTypes = Array.from(new Set(masterFilters.map(f => f.type)));
+
+  const formatValue = (val: any) => {
+    if (val === null || val === undefined || val === '') return <span className="italic opacity-50">Empty</span>;
+    if (typeof val === 'string' && (val.startsWith('http') || val.includes('supabase.co'))) {
+      return <img src={val} className="h-16 w-auto rounded-lg shadow-sm border border-gray-200 object-cover" />;
+    }
+    if (Array.isArray(val)) {
+      if (val.length > 0 && typeof val[0] === 'string' && (val[0].startsWith('http') || val[0].includes('supabase.co'))) {
+         return <div className="flex flex-wrap gap-2">{val.map((v, i) => <img key={i} src={v} className="h-12 w-12 rounded-md shadow-sm border border-gray-200 object-cover" />)}</div>;
+      }
+      return val.join(', ');
+    }
+    if (typeof val === 'object') return <pre className="text-xs bg-gray-50 p-2 rounded border border-gray-100 overflow-auto">{JSON.stringify(val, null, 2)}</pre>;
+    return String(val);
+  };
 
   return (
     <div className="max-w-7xl mx-auto py-8 px-4 relative min-h-screen pb-20 animate-in fade-in duration-500">
@@ -746,12 +806,79 @@ export default function AdminDashboard() {
                     <h2 className="text-3xl font-black text-gray-900">Edit Details</h2>
                     <p className="text-orange-500 font-bold">{editingData.title}</p>
                   </div>
-                  <button onClick={() => setEditingData(null)} className="text-gray-400 hover:text-red-500 text-3xl font-black bg-gray-100 hover:bg-red-50 w-14 h-14 rounded-full flex items-center justify-center transition">
+                  <button onClick={() => { setEditingData(null); setDeltaTargetData(null); }} className="text-gray-400 hover:text-red-500 text-3xl font-black bg-gray-100 hover:bg-red-50 w-14 h-14 rounded-full flex items-center justify-center transition">
                     <Icons.Close className="w-6 h-6" />
                   </button>
                 </div>
               </div>
               <div className="p-10 space-y-16">
+                
+                {/* --- DELTA DIFF VIEWER --- */}
+                {deltaTargetData && (
+                  <section className="p-8 bg-orange-50 rounded-[32px] border border-orange-200 shadow-inner">
+                    <div className="flex justify-between items-center mb-6">
+                       <h3 className="text-xl font-black text-orange-900 flex items-center gap-2">
+                         <Icons.Sync className="w-6 h-6 text-orange-500 animate-spin-slow" /> Delta Update Changes
+                       </h3>
+                       <span className="text-xs font-bold text-orange-600 bg-orange-100 px-3 py-1 rounded-full uppercase tracking-widest">Review Before Approving</span>
+                    </div>
+                    <div className="space-y-3">
+                      {(() => {
+                         const ignoreKeys = ['id', 'created_at', 'status', 'custom_fields', 'lat', 'lng', 'updated_at'];
+                         const changes: any[] = [];
+                         
+                         const allKeys = Array.from(new Set([...Object.keys(editingData), ...Object.keys(deltaTargetData)]));
+                         allKeys.forEach(key => {
+                            if (ignoreKeys.includes(key)) return;
+                            
+                            let val1 = editingData[key];
+                            let val2 = deltaTargetData[key];
+                            
+                            if (key === 'operating_hours') {
+                               val1 = typeof val1 === 'object' ? JSON.stringify(val1) : val1;
+                               val2 = typeof val2 === 'object' ? JSON.stringify(val2) : val2;
+                            }
+
+                            if (JSON.stringify(val1) !== JSON.stringify(val2)) {
+                               changes.push({ key, old: val2, new: val1 });
+                            }
+                         });
+
+                         const oldCustom = deltaTargetData.custom_fields || {};
+                         const newCustom = editingData.custom_fields || {};
+                         const customKeys = Array.from(new Set([...Object.keys(oldCustom), ...Object.keys(newCustom)]));
+                         
+                         customKeys.forEach(key => {
+                            if (key === 'update_target_id' || key === 'update_target_name') return;
+                            const val1 = newCustom[key];
+                            const val2 = oldCustom[key];
+                            if (JSON.stringify(val1) !== JSON.stringify(val2)) {
+                               changes.push({ key: `[Custom] ${key}`, old: val2, new: val1 });
+                            }
+                         });
+
+                         if (changes.length === 0) return <div className="text-sm font-bold text-orange-700 bg-white p-4 rounded-2xl border border-orange-100">No field changes detected (Data is identical).</div>;
+
+                         return changes.map((c, i) => (
+                            <div key={i} className="bg-white p-4 rounded-2xl border border-orange-100 flex flex-col md:flex-row gap-4 items-start">
+                               <div className="font-black text-orange-800 w-48 shrink-0 capitalize text-sm pt-1">{c.key.replace(/_/g, ' ')}</div>
+                               <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-4 w-full">
+                                 <div className="bg-red-50/50 p-4 rounded-xl border border-red-100">
+                                    <span className="text-[10px] font-black text-red-500 uppercase tracking-widest block mb-2">Old Value (Live)</span>
+                                    <div className="text-sm font-medium text-red-900 break-words">{formatValue(c.old)}</div>
+                                 </div>
+                                 <div className="bg-green-50/50 p-4 rounded-xl border border-green-100">
+                                    <span className="text-[10px] font-black text-green-600 uppercase tracking-widest block mb-2">New Value (Pending)</span>
+                                    <div className="text-sm font-bold text-green-900 break-words">{formatValue(c.new)}</div>
+                                 </div>
+                               </div>
+                            </div>
+                         ));
+                      })()}
+                    </div>
+                  </section>
+                )}
+
                 <section className="p-8 bg-purple-50 rounded-[32px] border border-purple-100">
                   <h3 className="text-xl font-black text-purple-900 mb-6 flex items-center gap-2">
                     <Icons.Categories className="w-6 h-6 text-purple-500" /> Participating Events & Shop Specifics

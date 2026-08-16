@@ -1,3 +1,4 @@
+// app/admin/RegistrationEditor.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
@@ -5,9 +6,9 @@ import { createPortal } from 'react-dom';
 import { supabase } from '@/lib/supabaseClient';
 
 // SECURE: Explicitly excluding contact_name, contact_phone, contact_email, admin_notes, and photo_method
-const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options';
+const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options, menu_items';
 
-type BlockType = 'text' | 'textarea' | 'select' | 'checkbox' | 'radio' | 'html' | 'hours_source' | 'operating_hours' | 'photo_method' | 'image_upload';
+type BlockType = 'text' | 'textarea' | 'select' | 'checkbox' | 'radio' | 'html' | 'hours_source' | 'operating_hours' | 'photo_method' | 'image_upload' | 'menu_builder';
 
 interface FormCondition {
   triggerValue: string;
@@ -104,7 +105,8 @@ const BASELINE_SCHEMA: FormSchema = {
         { id: "b_cuisine", type: "checkbox", label: "代表的な料理ジャンル (複数可)", dbColumn: "cuisine", required: false, options: ['和食', '洋食', '中華', '韓国料理', 'インド料理', '東南アジア', 'ファストフード', 'カフェ・スイーツ', '寿司', '丼もの'] },
         { id: "b_restrict", type: "checkbox", label: "食事制限への対応 (複数可)", dbColumn: "food_restrictions", required: false, options: ['ハラール', 'ヴィーガン', 'ベジタリアン', 'グルテンフリー', 'コーシャ', '乳製品不使用', 'ペスカタリアン'] },
         { id: "b_price", type: "select", label: "1名あたりの平均ご利用金額（目安）", dbColumn: "restaurant_price", required: false, options: ["500", "1000", "1500", "2000", "3000", "5000"] },
-        { id: "b_desc", type: "textarea", label: "店舗紹介・おすすめメニュー", dbColumn: "description", required: false, placeholder: "お店の雰囲気や、学生に人気なメニューなど自由にご記入ください。" }
+        { id: "b_desc", type: "textarea", label: "店舗紹介・おすすめメニュー", dbColumn: "description", required: false, placeholder: "お店の雰囲気や、学生に人気なメニューなど自由にご記入ください。" },
+        { id: "b_menu_table", type: "menu_builder", label: "詳細メニュー登録", dbColumn: "menu_items", required: false }
       ]
     },
     {
@@ -187,125 +189,6 @@ const ImagePickerBlock: React.FC<{ block: FormBlock; isEditing: boolean; onClick
         </div>
         <span className="text-[10px] font-black bg-gray-100 text-gray-400 px-2 py-1 rounded uppercase ml-4 flex-shrink-0 pointer-events-none">{block.type}</span>
       </div>
-    </div>
-  );
-};
-
-const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (files: File | File[] | null) => void, currentValue: any }) => {
-  const [previews, setPreviews] = useState<{file?: File, url: string}[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  
-  const maxLimit = block.maxImages || 1;
-  const isMultiple = maxLimit > 1;
-
-  useEffect(() => {
-    if (!currentValue) {
-      setPreviews([]);
-    } else if (currentValue instanceof File) {
-      setPreviews([{ file: currentValue, url: URL.createObjectURL(currentValue) }]);
-    } else if (typeof currentValue === 'string' && currentValue.startsWith('http')) {
-      // Single URL string from DB
-      setPreviews([{ url: currentValue }]);
-    } else if (Array.isArray(currentValue)) {
-      // Handle array of Files or array of URL strings from DB
-      const processedPreviews = currentValue.map((item: any) => {
-        if (item instanceof File) {
-          return { file: item, url: URL.createObjectURL(item) };
-        } else if (typeof item === 'string' && item.startsWith('http')) {
-          return { url: item };
-        }
-        return null;
-      }).filter(Boolean);
-      
-      setPreviews(processedPreviews as {file?: File, url: string}[]);
-    }
-  }, [currentValue]);
-
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-
-    const validImages = files.filter(f => f.type.startsWith('image/'));
-    
-    setPreviews(prev => {
-      const combined = [...prev];
-      for (const file of validImages) {
-        if (combined.length < maxLimit) {
-          combined.push({ file, url: URL.createObjectURL(file) });
-        }
-      }
-      
-      // We only pass back the actual new Files to the form data state so the uploader logic knows to upload them.
-      // Existing string URLs don't need re-uploading.
-      const filesOnly = combined.map(p => p.file).filter(Boolean) as File[];
-      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
-      onImageSelected(filePayload);
-      
-      return combined;
-    });
-    
-    if (fileInputRef.current) fileInputRef.current.value = '';
-  };
-
-  const removeImage = (index: number) => {
-    setPreviews(prev => {
-      const updated = [...prev];
-      updated.splice(index, 1);
-      
-      const filesOnly = updated.map(p => p.file).filter(Boolean) as File[];
-      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
-      onImageSelected(filePayload);
-      
-      return updated;
-    });
-  };
-
-  return (
-    <div className="mt-2 w-full animate-in fade-in duration-300">
-      <input
-        type="file"
-        accept="image/*"
-        multiple={isMultiple}
-        onChange={handleFileChange}
-        ref={fileInputRef}
-        className="hidden"
-      />
-      
-      {previews.length > 0 ? (
-        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
-          <div className="flex justify-between items-end mb-4">
-            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} uploaded</span>
-            {previews.length < maxLimit && (
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
-                + Add More
-              </button>
-            )}
-          </div>
-          
-          <div className={`grid gap-4 ${isMultiple ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:w-48'}`}>
-            {previews.map((preview, idx) => (
-              <div key={idx} className="relative group aspect-square">
-                <img src={preview.url} alt={`Upload ${idx + 1}`} className="w-full h-full object-cover rounded-xl border border-gray-300 shadow-sm bg-white" />
-                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform">
-                  ✕
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
-      ) : (
-        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-12 px-4 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50 hover:bg-white hover:border-orange-400 hover:shadow-md transition-all group text-gray-500">
-          <div className="bg-white p-3 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
-            <svg className="w-8 h-8 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
-          </div>
-          <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
-            Tap to Upload {isMultiple ? `(Up to ${maxLimit} photos)` : 'Photo'}
-          </span>
-          {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
-        </button>
-      )}
     </div>
   );
 };
@@ -553,8 +436,15 @@ export function RegistrationEditor() {
   };
 
   const createNewBlock = (type: BlockType): FormBlock => ({
-    id: generateId(), type, label: `New ${type}`, required: false, dbColumn: type === 'image_upload' ? 'image_url' : `custom_fields.${generateId()}`,
-    options: ['Option 1', 'Option 2'], content: '<p>Edit your text here.</p>', isPublicCustomField: true, maxImages: type === 'image_upload' ? 1 : undefined
+    id: generateId(), 
+    type, 
+    label: `New ${type}`, 
+    required: false, 
+    dbColumn: type === 'image_upload' ? 'image_url' : type === 'menu_builder' ? 'menu_items' : `custom_fields.${generateId()}`,
+    options: ['Option 1', 'Option 2'], 
+    content: '<p>Edit your text here.</p>', 
+    isPublicCustomField: true, 
+    maxImages: type === 'image_upload' ? 1 : undefined
   });
 
   const addBlockToSection = (sectionId: string, type: BlockType) => {
@@ -690,6 +580,17 @@ export function RegistrationEditor() {
             <div className="flex-1 w-full">
               <label className="block text-sm font-bold text-gray-700 mb-2">{block.label} {block.required && <span className="text-red-500">*</span>}</label>
               
+              {block.type === 'menu_builder' && (
+                 <div className="w-full bg-gray-50 border border-gray-200 rounded-xl p-4 flex flex-col gap-2">
+                   <div className="flex gap-2">
+                     <div className="flex-1 h-8 bg-white border border-gray-200 rounded flex items-center px-2 text-xs text-gray-400">メニュー名 (Menu Name)</div>
+                     <div className="flex-1 h-8 bg-white border border-gray-200 rounded flex items-center px-2 text-xs text-gray-400">価格 (Price)</div>
+                   </div>
+                   <div className="w-full h-8 bg-white border border-gray-200 rounded flex items-center px-2 text-xs text-gray-400">説明 (Description)</div>
+                   <div className="text-xs font-bold text-orange-500 mt-2">+ 行を追加 (Add Row)</div>
+                 </div>
+              )}
+
               {block.type === 'hours_source' && (
                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                    {block.options?.map(opt => <div key={opt} className="p-3 rounded-xl border-2 border-gray-200 text-center font-bold text-gray-600 text-sm">{opt}</div>)}
@@ -784,8 +685,7 @@ export function RegistrationEditor() {
     };
 
     const isCustomField = local.dbColumn.startsWith('custom_fields.');
-    
-    const blockExpectedType = block.type === 'checkbox' ? 'array' : 'string';
+    const blockExpectedType = block.type === 'checkbox' || block.type === 'menu_builder' ? 'array' : 'string';
 
     return (
       <div className="space-y-6 animate-in fade-in zoom-in-95 duration-200">
@@ -801,7 +701,7 @@ export function RegistrationEditor() {
               <input type="text" value={local.label} onChange={e => setLocal({...local, label: e.target.value})} onBlur={handleBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-bold outline-none focus:ring-2 focus:ring-orange-500" />
             </div>
             
-            {block.type !== 'image_upload' && (
+            {block.type !== 'image_upload' && block.type !== 'menu_builder' && (
               <div>
                 <label className="block text-xs font-black text-gray-400 uppercase tracking-widest mb-2">Placeholder</label>
                 <input type="text" value={local.placeholder || ''} onChange={e => setLocal({...local, placeholder: e.target.value})} onBlur={handleBlur} className="w-full p-3 bg-gray-50 border rounded-xl font-medium outline-none focus:ring-2 focus:ring-orange-500" />
@@ -892,7 +792,7 @@ export function RegistrationEditor() {
                   updateBlock(sectionId, block.id, { dbColumn: formattedName, maxImages: 1 });
                 }
               } else {
-                const selectedCol = [...baseColumns, ...dynamicColumns].find(c => c.id === val);
+                const selectedCol = [...baseColumns, ...dynamicColumns, {id: 'menu_items', label: 'menu_items', category: 'Standard Columns', dataType: 'array'}].find(c => c.id === val);
                 const isArray = selectedCol?.dataType === 'array';
                 const newMax = isArray ? 5 : 1;
                 
@@ -903,7 +803,7 @@ export function RegistrationEditor() {
             className="w-full p-3 bg-white border border-blue-200 text-gray-900 rounded-xl font-bold text-sm outline-none focus:ring-2 focus:ring-blue-500 shadow-sm"
           >
             <optgroup label="Standard Columns">
-              {baseColumns.map(col => {
+              {[{id: 'menu_items', label: 'menu_items (JSON Array)', dataType: 'array'}, ...baseColumns].map(col => {
                 const isTypeMatch = col.dataType === blockExpectedType || (block.type === 'image_upload');
                 const isUsed = usedColumns.includes(col.id) && col.id !== local.dbColumn;
                 const disabled = isUsed || !isTypeMatch;
@@ -1050,6 +950,7 @@ export function RegistrationEditor() {
                 
                 <span className="text-xs font-bold text-gray-400 py-1 ml-4 mr-2 border-l pl-4">Custom UI:</span>
                 <button onClick={() => addBlockToSection(section.id, 'image_upload')} className="text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition">+ Image/Camera</button>
+                <button onClick={() => addBlockToSection(section.id, 'menu_builder')} className="text-xs font-bold bg-blue-50 border border-blue-200 text-blue-700 px-3 py-1.5 rounded-lg hover:bg-blue-100 transition">+ Menu Table</button>
                 <button onClick={() => addBlockToSection(section.id, 'hours_source')} className="text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition">+ Hours Toggle</button>
                 <button onClick={() => addBlockToSection(section.id, 'operating_hours')} className="text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition">+ 7-Day Grid</button>
                 <button onClick={() => addBlockToSection(section.id, 'photo_method')} className="text-xs font-bold bg-purple-50 text-purple-700 border border-purple-200 px-3 py-1.5 rounded-lg hover:bg-purple-100 transition">+ Photo Cards</button>
@@ -1179,240 +1080,3 @@ export function RegistrationEditor() {
     </div>
   );
 }
-
-export function RegisterRestaurant() {
-  const [schema, setSchema] = useState<any>(null);
-  const [formData, setFormData] = useState<Record<string, any>>({ hours_source: 'Googleマップと同じ' });
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  
-  // Delta Update State
-  const [isUpdateMode, setIsUpdateMode] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
-
-  const [activeEvents, setActiveEvents] = useState<any[]>([]);
-  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
-  const [ads, setAds] = useState<any[]>([]);
-  const [mounted, setMounted] = useState(false);
-  const [isIframe, setIsIframe] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    setIsIframe(window.self !== window.top);
-
-    const fetchData = async () => {
-      try {
-        const [schemaRes, eventsRes, adsRes] = await Promise.all([
-          supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle(),
-          supabase.from('custom_categories').select('*').order('created_at'),
-          supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/register'])
-        ]);
-
-        if (schemaRes.data?.data?.sections?.length > 0) setSchema(schemaRes.data.data);
-        else setSchema(BASELINE_SCHEMA);
-
-        if (eventsRes.data) {
-          const today = new Date().toISOString().split('T')[0]; 
-          const validEvents = eventsRes.data.filter(e => {
-            if (e.is_constant) return true;
-            const start = e.start_date ? e.start_date.split('T')[0] : null;
-            const end = e.end_date ? e.end_date.split('T')[0] : null;
-            if (start && end) return today >= start && today <= end;
-            if (start) return today >= start;
-            if (end) return today <= end;
-            return true;
-          });
-          setActiveEvents(validEvents);
-        }
-        if (adsRes.data) setAds(adsRes.data);
-      } catch (err: any) {
-        setSchema(BASELINE_SCHEMA);
-      }
-    };
-    fetchData();
-  }, []);
-
-  // --- DELTA UPDATE LIVE SEARCH LOGIC ---
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (searchQuery.trim().length > 1 && !updateTargetId) {
-        setIsSearching(true);
-        // Only fetching safe search identifiers here
-        const { data } = await supabase
-          .from('restaurants')
-          .select('id, title, address')
-          .eq('status', 'approved')
-          .ilike('title', `%${searchQuery}%`)
-          .limit(10);
-        
-        setSearchResults(data || []);
-        setIsSearching(false);
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
-
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery, updateTargetId]);
-
-  const handleSelectRestaurantToUpdate = async (restaurant: any) => {
-    setUpdateTargetId(restaurant.id);
-    setSearchQuery(restaurant.title);
-    setSearchResults([]);
-    setLoading(true);
-
-    // SECURE: Strict selection to prevent private data leaks (contact info, admin notes, etc.)
-    const { data, error } = await supabase
-      .from('restaurants')
-      .select(SAFE_UPDATE_COLUMNS)
-      .eq('id', restaurant.id)
-      .single();
-    
-    setLoading(false);
-    if (data) {
-      const newFormData: any = {};
-      
-      // Map standard safe columns
-      Object.keys(data).forEach(key => {
-        if (key !== 'custom_fields' && key !== 'other_options') {
-          newFormData[key] = data[key];
-        }
-      });
-
-      // Map custom JSON fields back to dot.notation keys
-      if (data.custom_fields) {
-        Object.keys(data.custom_fields).forEach(key => {
-          newFormData[`custom_fields.${key}`] = data.custom_fields[key];
-        });
-      }
-
-      // Default the hours source if it wasn't strictly set previously
-      if (!newFormData.hours_source) {
-        newFormData.hours_source = data.operating_hours || 'Googleマップと同じ';
-      }
-
-      setFormData(newFormData);
-      setSelectedEvents(data.other_options || []);
-    } else if (error) {
-      setMessage(`データの取得に失敗しました: ${error.message}`);
-    }
-  };
-
-  const handleInputChange = (dbColumn: string, value: any) => {
-    setFormData(prev => ({ ...prev, [dbColumn]: value }));
-  };
-
-  const handleCheckboxArray = (dbColumn: string, option: string, isChecked: boolean) => {
-    setFormData(prev => {
-      const currentArray = prev[dbColumn] || [];
-      if (isChecked) return { ...prev, [dbColumn]: [...currentArray, option] };
-      return { ...prev, [dbColumn]: currentArray.filter((o: string) => o !== option) };
-    });
-  };
-
-  const handleEventToggle = (eventName: string, isChecked: boolean) => {
-    if (isChecked) setSelectedEvents(prev => [...prev, eventName]);
-    else setSelectedEvents(prev => prev.filter(e => e !== eventName));
-  };
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
-
-    const payload: any = { status: 'pending', custom_fields: {}, other_options: selectedEvents };
-    
-    // Attach delta update tags if applicable
-    if (isUpdateMode && updateTargetId) {
-      payload.custom_fields.update_target_id = updateTargetId;
-      payload.custom_fields.update_target_name = searchQuery;
-    }
-    
-    for (const key of Object.keys(formData)) {
-      if (key.startsWith('hours_') && key !== 'hours_source') continue;
-      
-      const value = formData[key];
-      
-      if (value instanceof File || (Array.isArray(value) && value[0] instanceof File)) {
-        const files = Array.isArray(value) ? value : [value];
-        const uploadedUrls: string[] = [];
-
-        for (const file of files) {
-          const fileExt = file.name.split('.').pop();
-          const fileName = `public-upload-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-          
-          try {
-            const { error: uploadError } = await supabase.storage.from('restaurant-images').upload(fileName, file);
-            if (uploadError) throw uploadError;
-            
-            const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
-            uploadedUrls.push(publicData.publicUrl);
-          } catch (uploadErr: any) {
-            setMessage(`Image upload failed: ${uploadErr.message}`);
-            setLoading(false);
-            return;
-          }
-        }
-        
-        const finalUrlData = key === 'image_urls' ? uploadedUrls : uploadedUrls[0];
-
-        if (key.startsWith('custom_fields.')) {
-          payload.custom_fields[key.replace('custom_fields.', '')] = finalUrlData;
-        } else {
-          payload[key] = finalUrlData;
-        }
-        continue;
-      }
-
-      if (key.startsWith('custom_fields.')) {
-        payload.custom_fields[key.replace('custom_fields.', '')] = value;
-      } else {
-        payload[key] = value;
-      }
-    }
-
-    let finalHours: any = '';
-    const hSource = formData['hours_source'];
-    
-    if (hSource === 'ここで手動で入力する') {
-      const hoursObj: Record<string, string> = {};
-      DAYS.forEach(day => {
-        hoursObj[day] = formData[`hours_${day}`] || '';
-      });
-      finalHours = JSON.stringify(hoursObj);
-    } else {
-      finalHours = hSource || '';
-    }
-    
-    payload.operating_hours = finalHours;
-
-    const { error } = await supabase.from('restaurants').insert([payload]);
-
-    setLoading(false);
-    if (error) {
-      setMessage(`Error occurred: ${error.message}`);
-    } else {
-      setMessage('Information submitted successfully! Thank you for your cooperation.');
-      setFormData({ hours_source: 'Googleマップと同じ' });
-      setSelectedEvents([]);
-      setUpdateTargetId(null);
-      setSearchQuery('');
-      window.scrollTo({ top: 0, behavior: 'smooth' });
-    }
-  };
-
-  const renderFormBlock = (block: any) => {
-    const activeCondition = block.conditions?.find((c: any) => {
-      const val = formData[block.dbColumn];
-      if (Array.isArray(val)) return val.includes(c.triggerValue);
-      return val === c.triggerValue;
-    });
-
-    return (
-      <div key={block.id} className="animate-in fade-in duration-300">
-        {block.type === 'hours_source' && (
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-5

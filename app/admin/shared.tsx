@@ -1,4 +1,4 @@
-// /app/admin/shared.tsx
+// app/admin/shared.tsx
 
 'use client';
 import { supabase } from '@/lib/supabaseClient';
@@ -78,10 +78,17 @@ export const RestaurantCard = ({
       <div className="w-full h-40 bg-gray-100 rounded-2xl mb-5 flex items-center justify-center text-gray-300 text-xs font-black">NO PHOTO</div>
     )}
     
-    <div className="flex justify-between items-start mb-1">
-      <h3 className="text-xl font-black text-gray-900 truncate flex-1">{restaurant.title}</h3>
+    <div className="flex justify-between items-start mb-1 gap-3">
+      <div className="flex-1 min-w-0">
+         {restaurant.custom_fields?.update_target_id && (
+            <div className="mb-2 text-[9px] font-black bg-purple-100 text-purple-700 px-2 py-1 rounded uppercase tracking-widest inline-flex items-center gap-1.5 shadow-sm">
+              <Icons.Sync className="w-3 h-3 animate-spin-slow" /> Delta Update
+            </div>
+         )}
+         <h3 className="text-xl font-black text-gray-900 truncate">{restaurant.title}</h3>
+      </div>
       {restaurant.lat && (
-        <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded font-black flex items-center gap-1">
+        <span className="text-[10px] bg-green-50 text-green-600 px-2 py-0.5 rounded font-black flex items-center gap-1 shrink-0 mt-1">
           <Icons.MapPin className="w-3 h-3" /> GEO
         </span>
       )}
