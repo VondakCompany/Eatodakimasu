@@ -124,41 +124,48 @@ export default function RestaurantPage({ params }: { params: { id: string } }) {
             </section>
           )}
 
-          {/* --- NEW MENU DETAILS TABLE --- */}
-          {restaurant.menu_items && restaurant.menu_items.length > 0 && (
-            <section className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 overflow-hidden">
-              <h2 className="text-xl font-black text-gray-900 mb-6 flex items-center gap-2">📖 詳細メニュー (Menu Details)</h2>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse min-w-[400px]">
-                  <thead>
-                    <tr className="border-b-2 border-gray-100">
-                      <th className="pb-3 text-sm font-black text-gray-400 w-1/3">メニュー名 (Item)</th>
-                      <th className="pb-3 text-sm font-black text-gray-400">説明 (Description)</th>
-                      <th className="pb-3 text-sm font-black text-gray-400 text-right w-24">価格 (Price)</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {restaurant.menu_items.map((item: any, idx: number) => (
-                      <tr key={idx} className="hover:bg-gray-50 transition-colors">
-                        <td className="py-4 pr-4 font-black text-gray-900 align-top">{item.name}</td>
-                        <td className="py-4 pr-4 text-sm font-medium text-gray-600 align-top">{item.description || '-'}</td>
-                        <td className="py-4 font-black text-orange-600 text-right align-top whitespace-nowrap">¥{item.price || '---'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </section>
-          )}
+          {/* --- SURGICALLY UPDATED MENU SECTION --- */}
+          <section className="mt-8">
+            <h2 className="text-2xl font-black text-gray-900 flex items-center gap-3 mb-6">
+              📋 Menu
+            </h2>
+            <div className="bg-gray-50 rounded-[32px] p-8 md:p-10 border border-gray-100 shadow-sm">
+              
+              {/* Menu Details Table Logic */}
+              {restaurant.menu_items && restaurant.menu_items.length > 0 ? (
+                <div className="overflow-x-auto mb-8">
+                  <table className="w-full text-left border-collapse min-w-[400px]">
+                    <tbody className="divide-y divide-gray-200/60">
+                      {restaurant.menu_items.map((item: any, idx: number) => (
+                        <tr key={idx} className="group">
+                          <td className="py-5 pr-4 align-top w-2/3">
+                            <div className="font-black text-gray-900 text-lg mb-1">{item.name}</div>
+                            {item.description && <div className="text-sm font-medium text-gray-500 leading-relaxed">{item.description}</div>}
+                          </td>
+                          <td className="py-5 font-black text-gray-900 text-right align-top whitespace-nowrap text-lg">
+                            ¥{item.price || '---'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <p className="text-gray-500 italic font-medium mb-8">Menu details coming soon.</p>
+              )}
 
-          {restaurant.takeout_menu && (
-            <section className="bg-orange-50 p-8 rounded-[32px] shadow-sm border border-orange-100">
-              <h2 className="text-xl font-black text-orange-900 mb-4 flex items-center gap-2">
-                🥡 Takeout Available
-              </h2>
-              <p className="text-orange-800 font-medium leading-relaxed whitespace-pre-wrap">{restaurant.takeout_menu}</p>
-            </section>
-          )}
+              {/* Takeout Menu (Keeping your original styling) */}
+              {restaurant.takeout_menu && (
+                <>
+                  <hr className="border-gray-200/60 mb-8" />
+                  <div>
+                    <h3 className="text-xs font-black text-[#8B3A1A] uppercase tracking-widest mb-3">Takeout Menu</h3>
+                    <p className="text-gray-800 font-bold leading-relaxed whitespace-pre-wrap">{restaurant.takeout_menu}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
           
           {restaurant.image_urls && restaurant.image_urls.length > 0 && (
             <section className="space-y-4">
