@@ -1,5 +1,4 @@
-// /app/admin/page.tsx
-
+// app/admin/page.tsx
 'use client';
 import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
@@ -12,8 +11,17 @@ import Translations from './Translations';
 import AdStudio from './AdStudio';
 import UserManagement from './UserManagement';
 import { RegistrationEditor } from './RegistrationEditor';
+import MenuManager from './MenuManager'; // <-- NEW: Imported the Menu Editor
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
+const MissingComp = ({ name }: { name: string }) => (// 🛡️ SAFETY NET: Prevents the "Element type is invalid" crash if a file is missing an export
+  <div className="p-10 bg-red-50 border-2 border-dashed border-red-300 rounded-3xl text-center">
+    <h2 className="text-xl font-black text-red-600 mb-2">Component Missing</h2>
+    <p className="text-red-500 font-bold">
+      The <code className="bg-white px-2 py-1 rounded shadow-sm">{name}.tsx</code> file is either empty or missing its <code>export default</code> statement.
+    </p>
+  </div>
+);
 
 export default function AdminDashboard() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -26,12 +34,14 @@ export default function AdminDashboard() {
   const [passwordInput, setPasswordInput] = useState('');
   const [loginError, setLoginError] = useState('');
   
-  const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'categories' | 'translations' | 'ad_studio' | 'users' | 'registration'>('directory');
+  // <-- NEW: Added 'menu' to the activeTab state types
+  const [activeTab, setActiveTab] = useState<'directory' | 'pending' | 'delta_updates' | 'categories' | 'translations' | 'ad_studio' | 'users' | 'registration' | 'menu'>('directory');
   
   const [loading, setLoading] = useState(true);
   const [isSlowData, setIsSlowData] = useState(false);
   
   const [pendingSubmissions, setPendingSubmissions] = useState<any[]>([]);
+  const [deltaUpdateSubmissions, setDeltaUpdateSubmissions] = useState<any[]>([]);
   const [liveRestaurants, setLiveRestaurants] = useState<any[]>([]);
   const [customCategories, setCustomCategories] = useState<any[]>([]);
   const [masterFilters, setMasterFilters] = useState<any[]>([]);
@@ -167,7 +177,14 @@ export default function AdminDashboard() {
 
     Promise.allSettled([
       supabase.from('restaurants').select('*').eq('status', 'pending').order('created_at', { ascending: false })
-        .then(res => { if (res.data) setPendingSubmissions(res.data); }),
+        .then(res => { 
+          if (res.data) {
+            const newPending = res.data.filter(r => !r.custom_fields?.update_target_id);
+            const deltaPending = res.data.filter(r => !!r.custom_fields?.update_target_id);
+            setPendingSubmissions(newPending);
+            setDeltaUpdateSubmissions(deltaPending);
+          } 
+        }),
         
       supabase.from('restaurants').select('*').eq('status', 'approved').order('created_at', { ascending: false })
         .then(res => { if (res.data) setLiveRestaurants(res.data); }),
@@ -228,7 +245,7 @@ export default function AdminDashboard() {
   };
 
   const batchUpdateCoordinates = async () => {
-    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    const allRests = [...liveRestaurants, ...pendingSubmissions, ...deltaUpdateSubmissions];
     const targets = allRests.filter(r => !r.lat || !r.lng);
     if (targets.length === 0) {
       alert("All restaurants already have coordinates!");
@@ -334,7 +351,7 @@ export default function AdminDashboard() {
     if (!safeNewName || safeNewName === oldName) return;
     await supabase.from('filter_options').update({ name: safeNewName }).eq('id', id);
     const dbField = getDbField(type);
-    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    const allRests = [...liveRestaurants, ...pendingSubmissions, ...deltaUpdateSubmissions];
     
     const updatePromises = allRests.map(async (rest) => {
       const currentArray = rest[dbField] || [];
@@ -350,7 +367,7 @@ export default function AdminDashboard() {
   };
 
   const openManageCategory = (categoryName: string) => {
-    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    const allRests = [...liveRestaurants, ...pendingSubmissions, ...deltaUpdateSubmissions];
     const participants = allRests.filter(r => (r.other_options || []).includes(categoryName)).map(r => r.id);
     setCategoryParticipants(participants);
     setManagingCategory(categoryName);
@@ -367,7 +384,7 @@ export default function AdminDashboard() {
   const saveCategoryParticipants = async () => {
     if (!managingCategory) return;
     setSavingParticipants(true);
-    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    const allRests = [...liveRestaurants, ...pendingSubmissions, ...deltaUpdateSubmissions];
     const updatePromises = allRests.map(async (r) => {
       const hasCat = (r.other_options || []).includes(managingCategory);
       const wantsCat = categoryParticipants.includes(r.id);
@@ -400,6 +417,7 @@ export default function AdminDashboard() {
     if (confirm(`Delete "${title}"? This cannot be undone.`)) {
       setLiveRestaurants(prev => prev.filter(r => r.id !== id));
       setPendingSubmissions(prev => prev.filter(r => r.id !== id));
+      setDeltaUpdateSubmissions(prev => prev.filter(r => r.id !== id));
       const { error } = await supabase.from('restaurants').delete().eq('id', id);
       if (error) {
         console.error("Delete Error:", error);
@@ -500,7 +518,7 @@ export default function AdminDashboard() {
     // STRIP invalid columns derived from client state before pushing to DB
     const { id, created_at, count, dist_meters, campus_name, campus_dist_meters, ...updates } = currentData;
     
-    const allRests = [...liveRestaurants, ...pendingSubmissions];
+    const allRests = [...liveRestaurants, ...pendingSubmissions, ...deltaUpdateSubmissions];
     const original = allRests.find(r => r.id === id);
     if (original && original.address !== updates.address && updates.address) {
       const { lat, lng } = await geocodeAddress(updates.address);
@@ -570,7 +588,7 @@ export default function AdminDashboard() {
     );
   }
 
-  const allRestaurantsList = [...liveRestaurants, ...pendingSubmissions];
+  const allRestaurantsList = [...liveRestaurants, ...pendingSubmissions, ...deltaUpdateSubmissions];
   const dynamicFilterTypes = Array.from(new Set(masterFilters.map(f => f.type)));
 
   return (
@@ -616,9 +634,22 @@ export default function AdminDashboard() {
             <Icons.Directory className="w-4 h-4" /> Directory ({liveRestaurants.length})
           </button>
         )}
+        
+        {/* <-- NEW: Added Menu Editor Button --> */}
+        {hasAccess('directory') && (
+          <button onClick={() => setActiveTab('menu')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'menu' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+            <span className="text-base leading-none">📋</span> Menu Editor
+          </button>
+        )}
+
         {hasAccess('pending') && (
           <button onClick={() => setActiveTab('pending')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'pending' ? 'bg-orange-600 text-white shadow-lg' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
             <Icons.Pending className="w-4 h-4" /> Pending ({pendingSubmissions.length})
+          </button>
+        )}
+        {hasAccess('pending') && (
+          <button onClick={() => setActiveTab('delta_updates')} className={`px-6 py-2.5 rounded-full font-black text-sm transition flex items-center gap-2 ${activeTab === 'delta_updates' ? 'bg-rose-600 text-white shadow-lg' : 'bg-rose-50 text-rose-600 hover:bg-rose-100'}`}>
+            <Icons.Pending className="w-4 h-4" /> Delta Updates ({deltaUpdateSubmissions.length})
           </button>
         )}
         {hasAccess('categories') && (
@@ -665,13 +696,18 @@ export default function AdminDashboard() {
         </div>
       ) : (
         <div className="animate-in fade-in duration-500">
-          {activeTab === 'users' && hasAccess('users') && <UserManagement />}
-          {activeTab === 'ad_studio' && hasAccess('ad_studio') && <AdStudio adCampaigns={adCampaigns} setAdCampaigns={setAdCampaigns} liveRestaurants={liveRestaurants} activeTab={activeTab} />}
-          {activeTab === 'translations' && hasAccess('translations') && <Translations appLanguages={appLanguages} setAppLanguages={setAppLanguages} uiTranslations={uiTranslations} setUiTranslations={setUiTranslations} masterFilters={masterFilters} setMasterFilters={setMasterFilters} liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} updateBaseTagName={updateBaseTagName} />}
-          {activeTab === 'categories' && hasAccess('categories') && <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} />}
-          {activeTab === 'directory' && hasAccess('directory') && <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} formBaseColumns={formBaseColumns} />}
-          {activeTab === 'pending' && hasAccess('pending') && <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} formBaseColumns={formBaseColumns} />}
-          {activeTab === 'registration' && hasAccess('registration') && <RegistrationEditor />}
+          {/* 🛡️ RENDER SAFETY BLOCKS: Renders components if they exist, or the helpful Missing Component block if they don't */}
+          {activeTab === 'users' && hasAccess('users') && (UserManagement ? <UserManagement /> : <MissingComp name="UserManagement" />)}
+          {activeTab === 'ad_studio' && hasAccess('ad_studio') && (AdStudio ? <AdStudio adCampaigns={adCampaigns} setAdCampaigns={setAdCampaigns} liveRestaurants={liveRestaurants} activeTab={activeTab} /> : <MissingComp name="AdStudio" />)}
+          {activeTab === 'translations' && hasAccess('translations') && (Translations ? <Translations appLanguages={appLanguages} setAppLanguages={setAppLanguages} uiTranslations={uiTranslations} setUiTranslations={setUiTranslations} masterFilters={masterFilters} setMasterFilters={setMasterFilters} liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} updateBaseTagName={updateBaseTagName} /> : <MissingComp name="Translations" />)}
+          {activeTab === 'categories' && hasAccess('categories') && (CategoryHub ? <CategoryHub customCategories={customCategories} setCustomCategories={setCustomCategories} masterFilters={masterFilters} fetchAllData={fetchAllData} openManageCategory={openManageCategory} updateBaseTagName={updateBaseTagName} /> : <MissingComp name="CategoryHub" />)}
+          {activeTab === 'directory' && hasAccess('directory') && (Directory ? <Directory restaurants={liveRestaurants} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} formBaseColumns={formBaseColumns} /> : <MissingComp name="Directory" />)}
+          {activeTab === 'pending' && hasAccess('pending') && (Pending ? <Pending restaurants={pendingSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} formBaseColumns={formBaseColumns} /> : <MissingComp name="Pending" />)}
+          {activeTab === 'delta_updates' && hasAccess('pending') && (Pending ? <Pending restaurants={deltaUpdateSubmissions} onEdit={handleEditClick} onStatusUpdate={updateStatus} onDelete={deleteRestaurant} formBaseColumns={formBaseColumns} /> : <MissingComp name="Pending" />)}
+          {activeTab === 'registration' && hasAccess('registration') && (RegistrationEditor ? <RegistrationEditor /> : <MissingComp name="RegistrationEditor" />)}
+          
+          {/* <-- NEW: Added MenuManager to Render Safety Block --> */}
+          {activeTab === 'menu' && hasAccess('directory') && (MenuManager ? <MenuManager liveRestaurants={liveRestaurants} pendingSubmissions={pendingSubmissions} fetchAllData={fetchAllData} /> : <MissingComp name="MenuManager" />)}
         </div>
       )}
 
@@ -711,7 +747,6 @@ export default function AdminDashboard() {
       )}
 
       {editingData && (() => {
-        // Calculate fields dynamically so they can be distributed across sections
         const dynamicDbFields = Array.from(new Set(masterFilters.map(f => getDbField(f.type))));
         const knownKeys = [
           'id', 'created_at', 'title', 'website_url', 'restaurant_price', 'address',
@@ -774,7 +809,6 @@ export default function AdminDashboard() {
                   </div>
                 </section>
 
-                {/* --- 1. PRIVATE CONTACT INFO & LOGISTICS --- */}
                 <section className="space-y-4">
                   <h3 className="text-xl font-black text-gray-900 border-b pb-2 flex items-center gap-2">
                     <Icons.Lock className="w-6 h-6 text-red-500" /> Private Admin Data & Logistics
@@ -794,7 +828,6 @@ export default function AdminDashboard() {
                   </div>
                 </section>
 
-                {/* --- 2. MASTER FILTER TAGS (FULLY DYNAMIC) --- */}
                 <section className="space-y-8">
                   <h3 className="text-xl font-black text-gray-900 border-b pb-2">Master Filter Tags</h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-10">

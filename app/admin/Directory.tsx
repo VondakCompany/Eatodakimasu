@@ -1,4 +1,3 @@
-// /app/admin/Directory.tsx
 'use client';
 import { useState } from 'react';
 import { RestaurantCard, Icons } from './shared';
@@ -8,13 +7,15 @@ export default function Directory({
   onEdit, 
   onStatusUpdate, 
   onDelete,
-  formBaseColumns
+  formBaseColumns,
+  liveRestaurants = []
 }: { 
   restaurants: any[], 
   onEdit: (r: any) => void, 
   onStatusUpdate: (r: any, s: string) => void, 
   onDelete: (id: string, title: string) => void,
-  formBaseColumns: any[]
+  formBaseColumns: any[],
+  liveRestaurants?: any[]
 }) {
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -58,6 +59,7 @@ export default function Directory({
               onStatusUpdate={onStatusUpdate}
               onDelete={onDelete}
               formBaseColumns={formBaseColumns}
+              liveRestaurants={liveRestaurants}
             />
           ))}
         </div>

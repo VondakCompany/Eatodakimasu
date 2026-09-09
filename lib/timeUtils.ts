@@ -1,107 +1,76 @@
-export function isOpenNow(operatingHours: any): boolean {
-  if (!operatingHours) return false;
+// /lib/timeUtils.ts
+import * as JapaneseHolidays from 'japanese-holidays';
 
+const DAYS = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
+
+export const isOpenNow = (operatingHoursStr: any): boolean => {
+  if (!operatingHoursStr) return false;
+
+  let hoursObj: Record<string, string> = {};
+  
+  // 1. Parse the incoming JSON cleanly
   try {
-    // 1. Bulletproof JST Time Extraction (Asia/Tokyo)
-    const now = new Date();
-    const jstFormatter = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Tokyo",
-      hour12: false,
-      weekday: "short",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-    
-    const parts = jstFormatter.formatToParts(now);
-    const weekdayShort = parts.find(p => p.type === 'weekday')?.value; 
-    const hourStr = parts.find(p => p.type === 'hour')?.value || '0';
-    const minuteStr = parts.find(p => p.type === 'minute')?.value || '0';
-    
-    const currentHour = parseInt(hourStr, 10);
-    const currentMinute = parseInt(minuteStr, 10);
-    const currentTimeVal = currentHour + currentMinute / 60;
-
-    const dayMap: Record<string, string> = {
-      'Sun': '日曜日', 'Mon': '月曜日', 'Tue': '火曜日', 
-      'Wed': '水曜日', 'Thu': '木曜日', 'Fri': '金曜日', 'Sat': '土曜日'
-    };
-    const todayString = dayMap[weekdayShort || 'Sun'];
-    const shortToday = todayString.replace('曜日', '');
-
-    // 2. Extract ONLY today's operating hours string FIRST (prevents JSON corruption)
-    let todayHoursRaw = '';
-
-    if (typeof operatingHours === 'object' && operatingHours !== null) {
-      todayHoursRaw = operatingHours[todayString] || operatingHours[shortToday] || operatingHours[`${shortToday}曜`] || '';
-    } else if (typeof operatingHours === 'string') {
-      if (operatingHours.trim().startsWith('{')) {
-        try {
-          const parsed = JSON.parse(operatingHours);
-          todayHoursRaw = parsed[todayString] || parsed[shortToday] || parsed[`${shortToday}曜`] || '';
-        } catch (e) {}
-      } else {
-        // Legacy flat string support
-        const lines = operatingHours.split(/\\n|\n/);
-        const todayLine = lines.find(line => line.includes(todayString) || line.includes(`${shortToday}曜`));
-        if (todayLine) {
-          todayHoursRaw = todayLine;
-        }
-      }
+    if (typeof operatingHoursStr === 'string') {
+      if (!operatingHoursStr.trim().startsWith('{')) return false; // Ignore legacy text blocks
+      hoursObj = JSON.parse(operatingHoursStr);
+    } else if (typeof operatingHoursStr === 'object' && operatingHoursStr !== null) {
+      hoursObj = operatingHoursStr;
     }
-
-    if (!todayHoursRaw || todayHoursRaw.includes('定休') || todayHoursRaw.includes('休業') || todayHoursRaw.includes('休')) {
-      return false;
-    }
-
-    // 3. Brutally normalize Japanese text (Only on today's extracted string)
-    // Convert full-width numbers and colons to half-width (e.g., １１：００ -> 11:00)
-    todayHoursRaw = todayHoursRaw.replace(/[！-～]/g, (s) => String.fromCharCode(s.charCodeAt(0) - 0xFEE0));
-    
-    // Convert all possible Japanese tildes, wave dashes, and minus signs to a standard dash '-'
-    todayHoursRaw = todayHoursRaw.replace(/[〜～~ー−]/g, '-');
-    
-    // Remove all spaces for easier parsing
-    todayHoursRaw = todayHoursRaw.replace(/\s/g, '');
-
-    // 4. Extract time ranges (The while loop inherently supports comma-separated split shifts)
-    const timeRegex = /(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})/g;
-    let match;
-    let hasValidTimes = false;
-
-    while ((match = timeRegex.exec(todayHoursRaw)) !== null) {
-      hasValidTimes = true;
-      const startHour = parseInt(match[1], 10);
-      const startMin = parseInt(match[2], 10);
-      let endHour = parseInt(match[3], 10);
-      const endMin = parseInt(match[4], 10);
-
-      const startTimeVal = startHour + startMin / 60;
-      let endTimeVal = endHour + endMin / 60;
-
-      // Handle late-night wraparound (e.g., 17:00-02:00 or 17:00-26:00)
-      if (endTimeVal <= startTimeVal) {
-        endTimeVal += 24; 
-      }
-
-      let checkTimeVal = currentTimeVal;
-      
-      // If it is currently past midnight (e.g., 1 AM = 1.0) 
-      // AND the shift started yesterday afternoon/evening (>= 12), wrap checkTime to 25.0
-      if (currentHour < 5 && startTimeVal >= 12) {
-        checkTimeVal += 24;
-      }
-
-      // We check if the current time falls inside the specific shift we are currently iterating over
-      if (checkTimeVal >= startTimeVal && checkTimeVal < endTimeVal) {
-        return true; 
-      }
-    }
-
-    // If the loop finishes checking all shifts and hasn't returned true, they are closed.
-    return false;
-
   } catch (e) {
-    console.error("Time parsing error:", e);
     return false;
   }
-}
+
+  // 2. Lock timezone to JST (Asia/Tokyo) to prevent overseas offset bugs
+  const now = new Date(new Date().toLocaleString("en-US", { timeZone: "Asia/Tokyo" }));
+  
+  // 3. Determine the correct day key
+  let todayKey = DAYS[now.getDay()];
+  
+  if (JapaneseHolidays.isHoliday(now)) {
+    todayKey = '祝日'; // Force the engine to look at the holiday column!
+  }
+
+  // 4. Fetch today's text (e.g., "11:00 - 22:00")
+  const todayHours = hoursObj[todayKey];
+  
+  // If blank, null, or explicitly marked as closed/holiday ("休")
+  if (!todayHours || todayHours.trim() === '' || todayHours.includes('休') || todayHours.includes('定休')) {
+    return false; 
+  }
+
+  // 5. Convert current time to total minutes for easy comparison (e.g. 1:30 PM = 810 mins)
+  const currentMinutes = now.getHours() * 60 + now.getMinutes();
+
+  // 6. Support multiple shifts like "11:00-15:00, 17:00-22:00"
+  const timeRanges = todayHours.split(',').map(s => s.trim());
+  
+  for (const range of timeRanges) {
+     // Split by standard dash, full-width dash, or tilde
+     const parts = range.split(/[~\-ー]/);
+     if (parts.length === 2) {
+        const startParts = parts[0].trim().split(':');
+        const endParts = parts[1].trim().split(':');
+        
+        if (startParts.length === 2 && endParts.length >= 1) {
+           const startMins = parseInt(startParts[0]) * 60 + parseInt(startParts[1]);
+           let endMins = parseInt(endParts[0]) * 60 + parseInt(endParts[1] || '0');
+           
+           // Handle past-midnight closing times (e.g., "17:00 - 26:00" OR "17:00 - 02:00")
+           let adjustedEnd = endMins;
+           if (endMins < startMins) adjustedEnd += 24 * 60; 
+           
+           let adjustedCurrent = currentMinutes;
+           // If it's currently 1 AM, and the restaurant is open until 2 AM, shift the current time up by 24h to match
+           if (currentMinutes < startMins && currentMinutes < 4 * 60) {
+              adjustedCurrent += 24 * 60;
+           }
+
+           if (adjustedCurrent >= startMins && adjustedCurrent <= adjustedEnd) {
+              return true;
+           }
+        }
+     }
+  }
+  
+  return false;
+};

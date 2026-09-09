@@ -1,3 +1,4 @@
+// /app/admin/RegistrationEditor.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
@@ -1412,7 +1413,189 @@ export function RegisterRestaurant() {
     });
 
     return (
-      <div key={block.id} className="animate-in fade-in duration-300">
+      <div key={block.id} className="animate-in fade-in duration-300 mb-6">
+        <label className="block text-sm font-bold text-gray-700 mb-2">
+          {block.label} {block.required && <span className="text-red-500">*</span>}
+        </label>
+        
+        {block.type === 'text' && (
+          <input 
+            type="text" 
+            value={formData[block.dbColumn] || ''} 
+            onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} 
+            placeholder={block.placeholder} 
+            required={block.required}
+            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        )}
+
+        {block.type === 'textarea' && (
+          <textarea 
+            value={formData[block.dbColumn] || ''} 
+            onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} 
+            placeholder={block.placeholder} 
+            required={block.required}
+            rows={4}
+            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        )}
+
+        {block.type === 'select' && (
+          <select 
+            value={formData[block.dbColumn] || ''} 
+            onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} 
+            required={block.required}
+            className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-orange-500 bg-white"
+          >
+            <option value="">選択してください...</option>
+            {block.options?.map((opt: string) => (
+              <option key={opt} value={opt}>{opt}</option>
+            ))}
+          </select>
+        )}
+
+        {block.type === 'radio' && (
+          <div className="flex flex-wrap gap-4 mt-2">
+            {block.options?.map((opt: string) => (
+              <label key={opt} className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="radio" 
+                  name={block.id}
+                  value={opt}
+                  checked={formData[block.dbColumn] === opt} 
+                  onChange={(e) => handleInputChange(block.dbColumn, e.target.value)}
+                  required={block.required}
+                  className="w-5 h-5 accent-orange-500"
+                />
+                <span>{opt}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {block.type === 'checkbox' && (
+          <div className="flex flex-wrap gap-4 mt-2">
+            {block.options?.map((opt: string) => (
+              <label key={opt} className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="checkbox" 
+                  checked={(formData[block.dbColumn] || []).includes(opt)} 
+                  onChange={(e) => handleCheckboxArray(block.dbColumn, opt, e.target.checked)}
+                  className="w-5 h-5 accent-orange-500"
+                />
+                <span>{opt}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
         {block.type === 'hours_source' && (
-          <div>
-            <label className="block text-sm font-bold text-gray-700 mb-4">{block.label} {block.required && <span className="text-red-5
+          <div className="flex flex-wrap gap-4 mt-2">
+            {block.options?.map((opt: string) => (
+              <label key={opt} className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="radio" 
+                  name={block.id}
+                  value={opt}
+                  checked={formData[block.dbColumn] === opt} 
+                  onChange={(e) => handleInputChange(block.dbColumn, e.target.value)}
+                  required={block.required}
+                  className="w-5 h-5 accent-orange-500"
+                />
+                <span>{opt}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {block.type === 'operating_hours' && (
+          <div className="grid grid-cols-1 gap-2 border border-gray-200 p-4 rounded-2xl bg-white mt-2">
+            {DAYS.map((day) => (
+              <div key={day} className="flex items-center gap-3">
+                <span className="w-16 text-xs font-bold text-gray-600 text-right">{day}</span>
+                <input 
+                  type="text" 
+                  value={formData[`hours_${day}`] || ''} 
+                  onChange={(e) => handleInputChange(`hours_${day}`, e.target.value)}
+                  placeholder="例: 11:00 - 22:00"
+                  className="flex-1 p-2 bg-gray-50 border border-gray-100 rounded-xl text-sm outline-none focus:border-orange-300"
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        {block.type === 'photo_method' && (
+           <div className="flex flex-wrap gap-4 mt-2">
+            {block.options?.map((opt: string) => (
+              <label key={opt} className="flex items-center gap-2 cursor-pointer">
+                <input 
+                  type="radio" 
+                  name={block.id}
+                  value={opt}
+                  checked={formData[block.dbColumn] === opt} 
+                  onChange={(e) => handleInputChange(block.dbColumn, e.target.value)}
+                  required={block.required}
+                  className="w-5 h-5 accent-orange-500"
+                />
+                <span>{opt}</span>
+              </label>
+            ))}
+          </div>
+        )}
+
+        {block.type === 'image_upload' && (
+          <PublicImageUploader 
+            block={block} 
+            currentValue={formData[block.dbColumn]} 
+            onImageSelected={(filePayload) => handleInputChange(block.dbColumn, filePayload)} 
+          />
+        )}
+
+        {block.type === 'html' && (
+          <div 
+            className="prose prose-sm max-w-none text-gray-600 bg-gray-50 p-4 rounded-xl border border-gray-100" 
+            dangerouslySetInnerHTML={{ __html: block.content || '' }} 
+          />
+        )}
+
+        {/* Render Condition Blocks recursively */}
+        {activeCondition && (
+          <div className="mt-4 pl-4 border-l-4 border-orange-300 bg-orange-50/30 p-4 rounded-r-xl">
+            {activeCondition.blocks.map((childBlock: any) => renderFormBlock(childBlock))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  return (
+    <div className="max-w-3xl mx-auto py-10 px-4">
+      {message && (
+        <div className="p-4 mb-6 text-white bg-gray-800 rounded-xl font-bold">
+          {message}
+        </div>
+      )}
+      <form onSubmit={handleSubmit} className="space-y-10">
+        {schema?.sections.map((section: any) => (
+          <div key={section.id} className="bg-white p-6 md:p-8 rounded-[32px] shadow-sm border border-gray-200">
+            <h2 className="text-2xl font-black text-gray-900 mb-2">{section.title}</h2>
+            {section.description && <p className="text-gray-500 mb-6 whitespace-pre-wrap">{section.description}</p>}
+            
+            <div className="space-y-2">
+              {section.blocks.map((block: any) => renderFormBlock(block))}
+            </div>
+          </div>
+        ))}
+        
+        <button 
+          type="submit" 
+          disabled={loading} 
+          className="w-full bg-orange-600 text-white font-black py-5 rounded-2xl hover:bg-orange-700 shadow-xl transition disabled:opacity-50 text-lg"
+        >
+          {loading ? 'SAVING...' : 'SUBMIT REGISTRATION'}
+        </button>
+      </form>
+    </div>
+  );
+}

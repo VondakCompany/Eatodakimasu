@@ -1,16 +1,19 @@
-// /app/admin/Pending.tsx
+
+//app/admin/Pending.tsx
 'use client';
 import { useState } from 'react';
 import { RestaurantCard, Icons } from './shared';
 
 export default function Pending({ 
   restaurants, 
+  liveRestaurants,
   onEdit, 
   onStatusUpdate, 
   onDelete,
   formBaseColumns
 }: { 
   restaurants: any[], 
+  liveRestaurants?: any[],
   onEdit: (r: any) => void, 
   onStatusUpdate: (r: any, s: string) => void, 
   onDelete: (id: string, title: string) => void,
@@ -36,23 +39,21 @@ export default function Pending({
             className="w-full pl-14 pr-12 py-4 bg-transparent rounded-3xl outline-none font-bold text-gray-800 text-lg focus:ring-2 focus:ring-orange-500/20"
           />
           {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center transition"
-            >
+            <button onClick={() => setSearchQuery('')} className="absolute right-4 top-1/2 -translate-y-1/2 text-gray-500 hover:text-gray-900 bg-gray-100 hover:bg-gray-200 rounded-full w-8 h-8 flex items-center justify-center transition">
               <Icons.Close className="w-5 h-5" />
             </button>
           )}
         </div>
       </div>
       {filteredRestaurants.length === 0 ? (
-        <div className="text-center py-20 text-gray-400 font-bold">No restaurants found matching "{searchQuery}"</div>
+        <div className="text-center py-20 text-gray-400 font-bold">No records found.</div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {filteredRestaurants.map(restaurant => (
             <RestaurantCard 
               key={restaurant.id} 
               restaurant={restaurant} 
+              originalRestaurant={liveRestaurants?.find(r => r.id === restaurant.custom_fields?.update_target_id)}
               tab="pending"
               onEdit={onEdit}
               onStatusUpdate={onStatusUpdate}

@@ -1,6 +1,6 @@
 // /app/admin/Translations.tsx
 'use client';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useRef } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import { Icons } from './shared';
 
@@ -21,6 +21,9 @@ export default function Translations({
   const [selectedTransRestId, setSelectedTransRestId] = useState<string>('');
   const [selectedTransLang, setSelectedTransLang] = useState<string>('');
   
+  // 🌍 UNIVERSAL SOURCE LANGUAGE: Defaults to Japanese
+  const [sourceLang, setSourceLang] = useState<string>('ja');
+  
   // UX Features: Search and Filters
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'missing' | 'complete'>('all');
@@ -28,13 +31,19 @@ export default function Translations({
   const [transDraft, setTransDraft] = useState({ 
     title: '', description: '', full_menu: '', takeout_menu: '', discount_info: '',
     website_url: '', total_seats: '', avg_stay_time: '', photo_method: '', admin_notes: '',
-    category_collabs: {} as any, custom_fields: {} as Record<string, string> 
+    category_collabs: {} as any, custom_fields: {} as Record<string, string>,
+    menu_items: [] as any[]
   });
   
   const [savingTrans, setSavingTrans] = useState(false);
   const [newLangCode, setNewLangCode] = useState('');
   const [newLangName, setNewLangName] = useState('');
   const [newTransKey, setNewTransKey] = useState('');
+
+  // --- PERFORMANCE OPTIMIZATION REFS ---
+  const saveTimeouts = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  const pendingUiUpdates = useRef<Record<string, any>>({});
+  const pendingTagUpdates = useRef<Record<string, any>>({});
 
   const translationLangs = appLanguages.filter((lang: any) => lang.code !== 'ja');
   const allRestaurantsList = [...liveRestaurants, ...pendingSubmissions];
@@ -64,11 +73,24 @@ export default function Translations({
     if (!error) { setNewTransKey(''); fetchAllData(); } else alert(error.message);
   };
 
-  const updateGlobalTranslation = async (key: string, langCode: string, value: string) => {
-    const existing = uiTranslations.find((u: any) => u.translation_key === key);
-    const newValues = { ...(existing?.values || {}), [langCode]: value };
-    await supabase.from('ui_translations').update({ values: newValues }).eq('translation_key', key);
-    fetchAllData();
+  const updateGlobalTranslation = (key: string, langCode: string, value: string) => {
+    setUiTranslations((prev: any[]) => prev.map(u => 
+      u.translation_key === key ? { ...u, values: { ...(u.values || {}), [langCode]: value } } : u
+    ));
+
+    if (!pendingUiUpdates.current[key]) {
+      const existing = uiTranslations.find((u: any) => u.translation_key === key);
+      pendingUiUpdates.current[key] = { ...existing?.values };
+    }
+    pendingUiUpdates.current[key][langCode] = value;
+
+    const timeoutKey = `global-${key}`;
+    if (saveTimeouts.current[timeoutKey]) clearTimeout(saveTimeouts.current[timeoutKey]);
+
+    saveTimeouts.current[timeoutKey] = setTimeout(async () => {
+      const valuesToSave = { ...pendingUiUpdates.current[key] };
+      await supabase.from('ui_translations').update({ values: valuesToSave }).eq('translation_key', key);
+    }, 700);
   };
 
   const deleteGlobalTranslation = async (key: string) => {
@@ -78,15 +100,74 @@ export default function Translations({
     }
   };
 
-  const updateTagTranslation = async (filterId: string, langCode: string, value: string) => {
-    const filter = masterFilters.find((f: any) => f.id === filterId);
-    if (!filter) return;
-    const newTranslations = { ...(filter.translations || {}), [langCode]: value };
-    await supabase.from('filter_options').update({ translations: newTranslations }).eq('id', filterId);
-    fetchAllData();
+  const updateTagTranslation = (filterId: string, langCode: string, value: string) => {
+    setMasterFilters((prev: any[]) => prev.map(f => 
+      f.id === filterId ? { ...f, translations: { ...(f.translations || {}), [langCode]: value } } : f
+    ));
+
+    if (!pendingTagUpdates.current[filterId]) {
+      const existing = masterFilters.find((f: any) => f.id === filterId);
+      pendingTagUpdates.current[filterId] = { ...existing?.translations };
+    }
+    pendingTagUpdates.current[filterId][langCode] = value;
+
+    const timeoutKey = `tag-${filterId}`;
+    if (saveTimeouts.current[timeoutKey]) clearTimeout(saveTimeouts.current[timeoutKey]);
+
+    saveTimeouts.current[timeoutKey] = setTimeout(async () => {
+      const transToSave = { ...pendingTagUpdates.current[filterId] };
+      await supabase.from('filter_options').update({ translations: transToSave }).eq('id', filterId);
+    }, 700);
   };
 
-  // --- UX Filtering Logic ---
+  const deduplicateDatabase = async () => {
+    if (!confirm("⚠️ WARNING: This will scan the entire database, merge all keys that share the exact same Japanese text, and delete the redundant keys. Proceed?")) return;
+    
+    setSavingTrans(true);
+    try {
+      const { data, error } = await supabase.from('ui_translations').select('*');
+      if (error) throw error;
+
+      const grouped = new Map<string, any[]>();
+      data.forEach(item => {
+        const jaText = item.values?.ja?.trim();
+        if (!jaText) return; 
+        if (!grouped.has(jaText)) grouped.set(jaText, []);
+        grouped.get(jaText)!.push(item);
+      });
+
+      let mergedCount = 0;
+      let deletedCount = 0;
+
+      for (const [jaText, items] of Array.from(grouped.entries())) {
+        if (items.length > 1) {
+          items.sort((a, b) => a.translation_key.length - b.translation_key.length);
+          const primary = items[0];
+          const duplicates = items.slice(1);
+
+          let mergedValues = { ...primary.values };
+          duplicates.forEach(dup => {
+            mergedValues = { ...dup.values, ...mergedValues }; 
+          });
+
+          await supabase.from('ui_translations').update({ values: mergedValues }).eq('translation_key', primary.translation_key);
+          const dupKeys = duplicates.map(d => d.translation_key);
+          await supabase.from('ui_translations').delete().in('translation_key', dupKeys);
+
+          mergedCount++;
+          deletedCount += dupKeys.length;
+        }
+      }
+
+      alert(`✅ Cleanup Complete!\nMerged ${mergedCount} text groups.\nDeleted ${deletedCount} redundant duplicate keys.`);
+      fetchAllData();
+    } catch (err: any) {
+      alert("Error during deduplication: " + err.message);
+    } finally {
+      setSavingTrans(false);
+    }
+  };
+
   const filteredGlobals = useMemo(() => {
     return uiTranslations.filter((item: any) => {
       if (searchQuery && !item.translation_key.toLowerCase().includes(searchQuery.toLowerCase())) return false;
@@ -103,7 +184,7 @@ export default function Translations({
       
       const isMissingAny = translationLangs.some((l: any) => {
         const t = rest.translations?.[l.code] || {};
-        return !t.title || !t.description; // Simple check for missing core fields
+        return !t.title || !t.description;
       });
 
       if (filterStatus === 'missing' && !isMissingAny) return false;
@@ -112,19 +193,24 @@ export default function Translations({
     });
   }, [allRestaurantsList, searchQuery, filterStatus, translationLangs]);
 
-  // --- Editor Functions ---
   const selectRestaurantForTranslation = (id: string, lang: string) => {
     setSelectedTransRestId(id);
     setSelectedTransLang(lang);
     
     const rest = allRestaurantsList.find(r => r.id === id);
     const existingTrans = rest?.translations?.[lang] || {};
+
+    let initialMenuItems = existingTrans.menu_items || [];
+    if (initialMenuItems.length === 0 && rest?.menu_items?.length > 0) {
+       initialMenuItems = rest.menu_items.map((m: any) => ({ price: m.price, name: '', description: '' }));
+    }
     
     setTransDraft({
       title: existingTrans.title || '', description: existingTrans.description || '', full_menu: existingTrans.full_menu || '',
       takeout_menu: existingTrans.takeout_menu || '', discount_info: existingTrans.discount_info || '', website_url: existingTrans.website_url || '',
       total_seats: existingTrans.total_seats || '', avg_stay_time: existingTrans.avg_stay_time || '', photo_method: existingTrans.photo_method || '',
-      admin_notes: existingTrans.admin_notes || '', category_collabs: existingTrans.category_collabs || {}, custom_fields: existingTrans.custom_fields || {}
+      admin_notes: existingTrans.admin_notes || '', category_collabs: existingTrans.category_collabs || {}, custom_fields: existingTrans.custom_fields || {},
+      menu_items: initialMenuItems
     });
   };
 
@@ -144,16 +230,54 @@ export default function Translations({
 
   const selectedTransRestData = allRestaurantsList.find(r => r.id === selectedTransRestId);
 
-  // UX Helper: Copy original JA value to draft
-  const copyToDraft = (key: keyof typeof transDraft | string, originalValue: string, isCustom = false, isEvent = false) => {
+  // Dynamic Content Extractors
+  const getSourceValue = (field: string) => {
+    if (sourceLang === 'ja') return selectedTransRestData?.[field] || '';
+    return selectedTransRestData?.translations?.[sourceLang]?.[field] || '';
+  };
+
+  const getSourceCustom = (key: string) => {
+    if (sourceLang === 'ja') return selectedTransRestData?.custom_fields?.[key] || '';
+    return selectedTransRestData?.translations?.[sourceLang]?.custom_fields?.[key] || '';
+  };
+
+  const getSourceEvent = (key: string) => {
+    if (sourceLang === 'ja') return selectedTransRestData?.category_collabs?.[key] || '';
+    return selectedTransRestData?.translations?.[sourceLang]?.category_collabs?.[key] || '';
+  };
+
+  const getSourceMenu = () => {
+    if (sourceLang === 'ja') return selectedTransRestData?.menu_items || [];
+    const transMenu = selectedTransRestData?.translations?.[sourceLang]?.menu_items;
+    return transMenu && transMenu.length > 0 ? transMenu : (selectedTransRestData?.menu_items || []);
+  };
+
+  const copyToDraft = (key: keyof typeof transDraft | string, sourceValue: string, isCustom = false, isEvent = false) => {
     if (isCustom) {
-      setTransDraft(prev => ({ ...prev, custom_fields: { ...prev.custom_fields, [key]: originalValue }}));
+      setTransDraft(prev => ({ ...prev, custom_fields: { ...prev.custom_fields, [key]: sourceValue }}));
     } else if (isEvent) {
-      setTransDraft(prev => ({ ...prev, category_collabs: { ...prev.category_collabs, [key]: originalValue }}));
+      setTransDraft(prev => ({ ...prev, category_collabs: { ...prev.category_collabs, [key]: sourceValue }}));
     } else {
-      setTransDraft(prev => ({ ...prev, [key]: originalValue }));
+      setTransDraft(prev => ({ ...prev, [key]: sourceValue }));
     }
   };
+
+  // HELPER: Renders the read-only reference fields with an optional JA fallback block
+  const renderRefField = (label: string, sourceVal: string, jaVal: string, isTextArea: boolean = false, rows: number = 2) => (
+    <div className="mb-4">
+       <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">{label}</label>
+       {isTextArea ? (
+          <textarea rows={rows} readOnly value={sourceVal} className="w-full p-4 border border-gray-200 rounded-xl text-sm font-medium bg-white text-gray-600 mb-1 shadow-sm" />
+       ) : (
+          <input type="text" readOnly value={sourceVal} className="w-full p-4 border border-gray-200 rounded-xl text-sm font-bold bg-white text-gray-600 mb-1 shadow-sm" />
+       )}
+       {sourceLang !== 'ja' && (
+          <div className="text-[10px] font-medium text-gray-500 bg-gray-100 p-2.5 rounded-lg border border-gray-200 leading-relaxed whitespace-pre-wrap">
+            <span className="font-black text-gray-400 mr-2 uppercase">JA Base:</span>{jaVal || '---'}
+          </div>
+       )}
+    </div>
+  );
 
   return (
     <div className="space-y-8 animate-in fade-in">
@@ -191,7 +315,6 @@ export default function Translations({
             <button onClick={() => {setTransSubTab('restaurants'); setSearchQuery(''); setFilterStatus('all');}} className={`px-8 py-5 text-sm font-black transition whitespace-nowrap ${transSubTab === 'restaurants' ? 'bg-white text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-900'}`}>Restaurant Content</button>
           </div>
 
-          {/* UX Filter & Search Bar (Visible on list views) */}
           {!selectedTransRestId && (
             <div className="bg-white p-4 border-b border-gray-100 flex flex-col sm:flex-row gap-4 items-center justify-between">
                <div className="relative flex-1 max-w-md w-full">
@@ -204,25 +327,45 @@ export default function Translations({
                    className="w-full pl-12 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:bg-white focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none transition" 
                  />
                </div>
-               <div className="flex bg-gray-100 p-1 rounded-xl w-full sm:w-auto">
-                 {['all', 'missing', 'complete'].map((f) => (
-                   <button 
-                     key={f} 
-                     onClick={() => setFilterStatus(f as any)}
-                     className={`flex-1 sm:px-4 py-2 text-xs font-black rounded-lg capitalize transition ${filterStatus === f ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+               <div className="flex flex-col sm:flex-row gap-4 items-center">
+                 {/* 🌍 UNIVERSAL SOURCE SELECTOR */}
+                 <div className="flex items-center gap-2 bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-200">
+                   <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Source</span>
+                   <select 
+                     value={sourceLang} 
+                     onChange={(e) => setSourceLang(e.target.value)}
+                     className="bg-transparent text-sm font-bold text-gray-700 outline-none cursor-pointer"
                    >
-                     {f}
-                   </button>
-                 ))}
+                     <option value="ja">JA (Base)</option>
+                     {translationLangs.map((l: any) => (
+                       <option key={l.code} value={l.code}>{l.code.toUpperCase()}</option>
+                     ))}
+                   </select>
+                 </div>
+
+                 <div className="flex bg-gray-100 p-1 rounded-xl w-full sm:w-auto">
+                   {['all', 'missing', 'complete'].map((f) => (
+                     <button 
+                       key={f} 
+                       onClick={() => setFilterStatus(f as any)}
+                       className={`flex-1 sm:px-4 py-2 text-xs font-black rounded-lg capitalize transition ${filterStatus === f ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-900'}`}
+                     >
+                       {f}
+                     </button>
+                   ))}
+                 </div>
                </div>
             </div>
           )}
 
           {transSubTab === 'global' && (
             <div className="p-8 flex-1 overflow-y-auto">
-               <div className="flex gap-3 mb-8 bg-blue-50 p-4 rounded-2xl border border-blue-100">
+               <div className="flex flex-col sm:flex-row gap-3 mb-8 bg-blue-50 p-4 rounded-2xl border border-blue-100">
                  <input type="text" value={newTransKey} onChange={e => setNewTransKey(e.target.value)} placeholder="New Key (e.g. btn_submit)" className="p-3 border rounded-xl text-sm font-bold flex-1 outline-none focus:border-blue-400" />
                  <button onClick={addGlobalTranslation} className="bg-blue-600 text-white font-black px-6 py-3 rounded-xl hover:bg-blue-700 transition shadow-sm">Add Key</button>
+                 <button onClick={deduplicateDatabase} disabled={savingTrans} className="bg-white text-blue-600 border border-blue-200 font-black px-6 py-3 rounded-xl hover:bg-blue-100 transition shadow-sm disabled:opacity-50">
+                   {savingTrans ? 'Cleaning...' : '🧹 Run Deduplication'}
+                 </button>
                </div>
                <div className="space-y-4">
                  {filteredGlobals.length === 0 ? (
@@ -234,19 +377,29 @@ export default function Translations({
                         <button onClick={() => deleteGlobalTranslation(item.translation_key)} className="text-[10px] text-red-500 font-bold bg-red-50 px-2 py-1 rounded hover:bg-red-100 transition opacity-0 group-hover:opacity-100">Delete</button>
                      </div>
                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                        <div className="space-y-1 relative">
-                           <label className="text-[10px] font-black text-gray-400 uppercase ml-1 tracking-widest">JA (Base)</label>
-                           <input type="text" value={item.values?.ja || ''} onChange={(e) => updateGlobalTranslation(item.translation_key, 'ja', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold outline-none focus:border-blue-400" />
-                        </div>
-                        {translationLangs.map((lang: any) => (
-                          <div key={lang.code} className="space-y-1">
-                             <label className="text-[10px] font-black text-blue-400 uppercase ml-1 tracking-widest flex justify-between">
-                               {lang.code}
-                               {!item.values?.[lang.code] && <span className="text-red-400">Missing</span>}
-                             </label>
-                             <input type="text" value={item.values?.[lang.code] || ''} onChange={(e) => updateGlobalTranslation(item.translation_key, lang.code, e.target.value)} placeholder="Missing translation..." className={`w-full p-3 bg-white border rounded-xl text-sm font-bold outline-none focus:ring-2 shadow-inner ${item.values?.[lang.code] ? 'border-gray-200 text-gray-900 focus:border-blue-500 focus:ring-blue-100' : 'border-red-200 bg-red-50/30 text-blue-900 focus:border-red-400 focus:ring-red-100'}`} />
-                          </div>
-                        ))}
+                        
+                        {/* DYNAMIC GRID: Source language always appears first */}
+                        {[sourceLang, ...['ja', ...translationLangs.map((l: any) => l.code)].filter(c => c !== sourceLang)].map(code => {
+                          const isSource = code === sourceLang;
+                          const val = item.values?.[code] || '';
+                          
+                          return (
+                            <div key={code} className={`space-y-1 ${isSource ? 'relative p-3 bg-blue-50/50 rounded-xl border border-blue-100' : ''}`}>
+                               <label className={`text-[10px] font-black uppercase ml-1 tracking-widest flex justify-between ${isSource ? 'text-blue-600' : 'text-gray-400'}`}>
+                                 {code === 'ja' ? 'JA (Base)' : code.toUpperCase()} {isSource && '(Reference)'}
+                                 {!isSource && !val && <span className="text-red-400">Missing</span>}
+                               </label>
+                               <input 
+                                 type="text" 
+                                 value={val} 
+                                 onChange={(e) => updateGlobalTranslation(item.translation_key, code, e.target.value)} 
+                                 placeholder={isSource ? "Base text..." : "Missing translation..."} 
+                                 className={`w-full p-3 bg-white border rounded-xl text-sm font-bold outline-none focus:ring-2 shadow-inner ${isSource ? 'border-blue-200 text-blue-900 focus:border-blue-500 focus:ring-blue-100' : val ? 'border-gray-200 text-gray-900 focus:border-blue-500 focus:ring-blue-100' : 'border-red-200 bg-red-50/30 text-blue-900 focus:border-red-400 focus:ring-red-100'}`} 
+                               />
+                            </div>
+                          );
+                        })}
+
                      </div>
                    </div>
                  ))}
@@ -272,15 +425,32 @@ export default function Translations({
                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
                        {typeFilters.map((filter: any) => (
                          <div key={filter.id} className="bg-white border border-gray-100 rounded-2xl p-4 flex flex-col gap-3 shadow-sm hover:border-blue-200 transition">
-                           <div className="flex items-center gap-3">
-                              <span className="text-[10px] font-black bg-gray-900 text-white px-2 py-1 rounded">JA</span>
-                              <span className="font-black text-gray-900">{filter.name}</span>
+                           
+                           {/* DYNAMIC TAG REFERENCE BLOCK W/ JA FALLBACK */}
+                           <div className="flex flex-col">
+                             <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                                <span className="text-[10px] font-black bg-blue-600 text-white px-2 py-1 rounded uppercase">{sourceLang === 'ja' ? 'JA (BASE)' : sourceLang}</span>
+                                <span className="font-black text-gray-900">{sourceLang === 'ja' ? filter.name : (filter.translations?.[sourceLang] || filter.name)}</span>
+                             </div>
+                             {sourceLang !== 'ja' && (
+                               <div className="mt-2 text-[10px] font-medium text-gray-500 bg-gray-100 p-2 rounded-lg border border-gray-200">
+                                 <span className="font-black text-gray-400 mr-2 uppercase">JA Base:</span>{filter.name}
+                               </div>
+                             )}
                            </div>
-                           <div className="flex flex-col gap-2 pl-4 border-l-2 border-blue-50">
-                             {translationLangs.map((lang: any) => (
+
+                           <div className="flex flex-col gap-2 pl-4 border-l-2 border-blue-50 mt-2">
+                             {/* Only show target languages (never the source language) */}
+                             {translationLangs.filter((l: any) => l.code !== sourceLang).map((lang: any) => (
                                <div key={lang.code} className="flex items-center gap-3">
-                                 <span className="text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-1 rounded w-8 text-center">{lang.code.toUpperCase()}</span>
-                                 <input type="text" value={filter.translations?.[lang.code] || ''} onChange={(e) => updateTagTranslation(filter.id, lang.code, e.target.value)} placeholder="Missing translation..." className={`flex-1 p-2 bg-white border rounded-lg text-sm font-bold outline-none ${filter.translations?.[lang.code] ? 'border-gray-200 focus:border-blue-400' : 'border-red-200 bg-red-50/50 focus:border-red-400'}`} />
+                                 <span className="text-[10px] font-black text-gray-500 bg-gray-100 border border-gray-200 px-2 py-1 rounded w-10 text-center uppercase">{lang.code}</span>
+                                 <input 
+                                   type="text" 
+                                   value={filter.translations?.[lang.code] || ''} 
+                                   onChange={(e) => updateTagTranslation(filter.id, lang.code, e.target.value)} 
+                                   placeholder="Missing translation..." 
+                                   className={`flex-1 p-2 bg-white border rounded-lg text-sm font-bold outline-none ${filter.translations?.[lang.code] ? 'border-gray-200 focus:border-blue-400' : 'border-red-200 bg-red-50/50 focus:border-red-400'}`} 
+                                 />
                                </div>
                              ))}
                            </div>
@@ -299,7 +469,7 @@ export default function Translations({
                 {filteredRestaurants.map(rest => {
                   const completeness = translationLangs.map((l: any) => {
                     const trans = rest.translations?.[l.code] || {};
-                    const totalFields = 2 + customTextFields.length + (rest.other_options?.length || 0); // basic proxy (title, desc + dynamic fields)
+                    const totalFields = 2 + customTextFields.length + (rest.other_options?.length || 0);
                     let filledFields = 0;
                     if (trans.title) filledFields++;
                     if (trans.description) filledFields++;
@@ -341,7 +511,6 @@ export default function Translations({
           {transSubTab === 'restaurants' && selectedTransRestId && selectedTransRestData && (
             <div className="flex-1 overflow-y-auto flex flex-col bg-gray-50 relative">
                
-               {/* UX: Sticky Action Bar */}
                <div className="sticky top-0 z-20 flex justify-between items-center bg-white/90 backdrop-blur-md px-8 py-4 border-b border-gray-200 shadow-sm">
                  <div>
                    <button onClick={() => setSelectedTransRestId('')} className="text-xs font-bold text-gray-400 hover:text-gray-900 mb-1 flex items-center gap-1">← Back to List</button>
@@ -358,34 +527,56 @@ export default function Translations({
                </div>
 
                <div className="p-8 grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-                 {/* Left Column: Original Japanese Context */}
+                 {/* Left Column: Dynamic Source Content + JA Fallbacks */}
                  <div className="space-y-6">
-                    <h3 className="font-black text-gray-400 border-b border-gray-200 pb-2">Original (JA) Content</h3>
-                    <div className="space-y-4 opacity-80">
-                       <div>
-                         <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">Title</label>
-                         <input type="text" readOnly value={selectedTransRestData.title || ''} className="w-full p-4 border rounded-xl text-sm font-bold bg-white text-gray-600" />
-                       </div>
-                       <div>
-                         <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">Description</label>
-                         <textarea rows={4} readOnly value={selectedTransRestData.description || ''} className="w-full p-4 border rounded-xl text-sm font-medium bg-white text-gray-600" />
-                       </div>
-                       <div>
-                         <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">Full Menu</label>
-                         <textarea rows={6} readOnly value={selectedTransRestData.full_menu || ''} className="w-full p-4 border rounded-xl text-sm font-medium bg-white text-gray-600" />
-                       </div>
-                       <div>
-                         <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">Takeout Menu</label>
-                         <textarea rows={3} readOnly value={selectedTransRestData.takeout_menu || ''} className="w-full p-4 border rounded-xl text-sm font-medium bg-white text-gray-600" />
-                       </div>
+                    <div className="flex justify-between items-end border-b border-gray-200 pb-2 mb-2">
+                      <h3 className="font-black text-gray-400">Reference Content</h3>
+                      <div className="bg-blue-50 text-blue-600 px-3 py-1 rounded-lg text-xs font-black uppercase tracking-widest border border-blue-100">
+                        SOURCE: {sourceLang === 'ja' ? 'JA (BASE)' : sourceLang}
+                      </div>
+                    </div>
+
+                    <div className="opacity-80">
+                       
+                       {/* DYNAMIC RENDER FIELDS */}
+                       {renderRefField('Title', getSourceValue('title'), selectedTransRestData.title)}
+                       {renderRefField('Description', getSourceValue('description'), selectedTransRestData.description, true, 4)}
+
+                       {/* DYNAMIC MENU TABLE W/ JA FALLBACKS */}
+                       {getSourceMenu().length > 0 && (
+                          <div className="pt-4 border-t border-gray-200 space-y-3 mb-4">
+                             <h4 className="text-[9px] font-black text-gray-400 uppercase ml-2 tracking-widest">Detailed Menu Items</h4>
+                             {getSourceMenu().map((item: any, idx: number) => {
+                                const jaItem = selectedTransRestData.menu_items?.[idx] || {};
+                                return (
+                                  <div key={idx} className="bg-white p-4 rounded-xl border space-y-2 mb-3">
+                                    <div className="flex justify-between items-center">
+                                      <span className="text-xs font-black text-gray-800">{item.name}</span>
+                                      <span className="text-xs font-bold text-gray-500">¥{item.price}</span>
+                                    </div>
+                                    {item.description && <p className="text-[10px] text-gray-500">{item.description}</p>}
+                                    
+                                    {sourceLang !== 'ja' && (
+                                      <div className="mt-2 pt-2 border-t border-gray-100">
+                                         <div className="text-[10px] font-black text-gray-400 mb-1">JA BASE:</div>
+                                         <div className="text-xs font-bold text-gray-600">{jaItem.name}</div>
+                                         {jaItem.description && <div className="text-[10px] text-gray-500 mt-1">{jaItem.description}</div>}
+                                      </div>
+                                    )}
+                                  </div>
+                                )
+                             })}
+                          </div>
+                       )}
+
+                       {renderRefField('Full Menu (Text Block)', getSourceValue('full_menu'), selectedTransRestData.full_menu, true, 6)}
+                       {renderRefField('Takeout Menu', getSourceValue('takeout_menu'), selectedTransRestData.takeout_menu, true, 3)}
 
                        {customTextFields.map((block: any) => {
                           const jsonKey = block.dbColumn.replace('custom_fields.', '');
-                          const originalVal = selectedTransRestData.custom_fields?.[jsonKey] || '';
                           return (
                             <div key={block.id}>
-                              <label className="text-[10px] font-black text-gray-400 uppercase ml-1 block mb-1">{block.label}</label>
-                              <textarea rows={2} readOnly value={originalVal} className="w-full p-4 border rounded-xl text-sm font-medium bg-white text-gray-600" />
+                              {renderRefField(block.label, getSourceCustom(jsonKey), selectedTransRestData.custom_fields?.[jsonKey] || '', true, 2)}
                             </div>
                           );
                        })}
@@ -394,9 +585,8 @@ export default function Translations({
                           <div className="pt-4 border-t border-gray-200 space-y-3">
                              <h4 className="text-[9px] font-black text-gray-400 uppercase ml-2 tracking-widest">Event Content</h4>
                              {selectedTransRestData.other_options.map((opt: string) => (
-                                <div key={opt} className="bg-white p-4 rounded-xl border">
-                                   <label className="text-[9px] font-black text-gray-400 uppercase ml-1 block mb-1">{opt}</label>
-                                   <textarea rows={2} readOnly value={selectedTransRestData.category_collabs?.[opt] || ''} className="w-full p-2 border-0 bg-transparent text-xs font-medium text-gray-600 outline-none resize-none" />
+                                <div key={opt}>
+                                   {renderRefField(opt, getSourceEvent(opt), selectedTransRestData.category_collabs?.[opt] || '', true, 2)}
                                 </div>
                              ))}
                           </div>
@@ -406,46 +596,80 @@ export default function Translations({
 
                  {/* Right Column: Editable Translation Draft */}
                  <div className="space-y-6">
-                    <h3 className="font-black text-blue-600 border-b border-blue-200 pb-2">Target Translation</h3>
+                    <h3 className="font-black text-blue-600 border-b border-blue-200 pb-2 mt-[6px]">Target Translation</h3>
                     <div className="space-y-4">
                        <div>
                          <div className="flex justify-between items-end mb-1">
                            <label className="text-[10px] font-black text-blue-400 uppercase ml-1">Title</label>
-                           <button onClick={() => copyToDraft('title', selectedTransRestData.title)} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy JA</button>
+                           <button onClick={() => copyToDraft('title', getSourceValue('title'))} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy {sourceLang.toUpperCase()}</button>
                          </div>
                          <input type="text" value={transDraft.title} onChange={(e) => setTransDraft({...transDraft, title: e.target.value})} className="w-full p-4 border border-blue-100 rounded-xl text-sm font-bold bg-white text-blue-900 shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Translated title..." />
                        </div>
                        <div>
                          <div className="flex justify-between items-end mb-1">
                            <label className="text-[10px] font-black text-blue-400 uppercase ml-1">Description</label>
-                           <button onClick={() => copyToDraft('description', selectedTransRestData.description)} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy JA</button>
+                           <button onClick={() => copyToDraft('description', getSourceValue('description'))} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy {sourceLang.toUpperCase()}</button>
                          </div>
                          <textarea rows={4} value={transDraft.description} onChange={(e) => setTransDraft({...transDraft, description: e.target.value})} className="w-full p-4 border border-blue-100 rounded-xl text-sm font-medium bg-white text-blue-900 shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Translated description..." />
                        </div>
+
+                       {/* EDITABLE DYNAMIC MENU TRANSLATIONS */}
+                       {selectedTransRestData.menu_items && selectedTransRestData.menu_items.length > 0 && (
+                          <div className="pt-4 border-t border-blue-200 space-y-3 bg-blue-50/30 p-4 rounded-3xl mt-4">
+                             <h4 className="text-[9px] font-black text-blue-400 uppercase ml-2 tracking-widest">Translate Menu Items</h4>
+                             {(transDraft.menu_items || []).map((item: any, idx: number) => {
+                                const sourceMenuArray = getSourceMenu();
+                                const sourceItem = sourceMenuArray[idx] || {};
+                                
+                                return (
+                                  <div key={idx} className="bg-white/50 p-4 rounded-2xl border border-blue-100 shadow-inner space-y-3">
+                                     <div className="flex justify-between items-end mb-1">
+                                       <label className="text-[9px] font-black text-gray-400 uppercase ml-1">{sourceItem.name || `Item ${idx + 1}`}</label>
+                                       <button onClick={() => {
+                                         const newMenu = [...transDraft.menu_items];
+                                         newMenu[idx] = { ...newMenu[idx], name: sourceItem.name || '', description: sourceItem.description || '' };
+                                         setTransDraft({...transDraft, menu_items: newMenu});
+                                       }} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy {sourceLang.toUpperCase()}</button>
+                                     </div>
+                                     <input type="text" value={item.name || ''} onChange={(e) => {
+                                       const newMenu = [...transDraft.menu_items];
+                                       newMenu[idx] = { ...newMenu[idx], name: e.target.value };
+                                       setTransDraft({...transDraft, menu_items: newMenu});
+                                     }} className="w-full p-3 border border-blue-50 rounded-xl text-sm font-bold text-blue-900 bg-white focus:outline-none focus:border-blue-300" placeholder="Translated item name..." />
+                                     
+                                     <textarea rows={2} value={item.description || ''} onChange={(e) => {
+                                       const newMenu = [...transDraft.menu_items];
+                                       newMenu[idx] = { ...newMenu[idx], description: e.target.value };
+                                       setTransDraft({...transDraft, menu_items: newMenu});
+                                     }} className="w-full p-3 border border-blue-50 rounded-xl text-xs font-medium text-blue-900 bg-white focus:outline-none focus:border-blue-300" placeholder="Translated description..." />
+                                  </div>
+                                );
+                             })}
+                          </div>
+                       )}
+
                        <div>
                          <div className="flex justify-between items-end mb-1">
                            <label className="text-[10px] font-black text-blue-400 uppercase ml-1">Full Menu</label>
-                           <button onClick={() => copyToDraft('full_menu', selectedTransRestData.full_menu)} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy JA</button>
+                           <button onClick={() => copyToDraft('full_menu', getSourceValue('full_menu'))} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy {sourceLang.toUpperCase()}</button>
                          </div>
                          <textarea rows={6} value={transDraft.full_menu} onChange={(e) => setTransDraft({...transDraft, full_menu: e.target.value})} className="w-full p-4 border border-blue-100 rounded-xl text-sm font-medium bg-white text-blue-900 shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Translated menu..." />
                        </div>
                        <div>
                          <div className="flex justify-between items-end mb-1">
                            <label className="text-[10px] font-black text-blue-400 uppercase ml-1">Takeout Menu</label>
-                           <button onClick={() => copyToDraft('takeout_menu', selectedTransRestData.takeout_menu)} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy JA</button>
+                           <button onClick={() => copyToDraft('takeout_menu', getSourceValue('takeout_menu'))} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy {sourceLang.toUpperCase()}</button>
                          </div>
                          <textarea rows={3} value={transDraft.takeout_menu} onChange={(e) => setTransDraft({...transDraft, takeout_menu: e.target.value})} className="w-full p-4 border border-blue-100 rounded-xl text-sm font-medium bg-white text-blue-900 shadow-inner focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Translated takeout menu..." />
                        </div>
 
-                       {/* EDITABLE DYNAMIC CUSTOM FIELD TRANSLATIONS */}
                        {customTextFields.map((block: any) => {
                           const jsonKey = block.dbColumn.replace('custom_fields.', '');
-                          const originalVal = selectedTransRestData.custom_fields?.[jsonKey] || '';
                           return (
                             <div key={block.id}>
                               <div className="flex justify-between items-end mb-1">
                                 <label className="text-[10px] font-black text-blue-400 uppercase ml-1">{block.label}</label>
-                                <button onClick={() => copyToDraft(jsonKey, originalVal, true)} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy JA</button>
+                                <button onClick={() => copyToDraft(jsonKey, getSourceCustom(jsonKey), true)} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy {sourceLang.toUpperCase()}</button>
                               </div>
                               <textarea 
                                 rows={2} 
@@ -465,12 +689,11 @@ export default function Translations({
                           <div className="pt-4 border-t border-blue-200 space-y-3 bg-blue-50/30 p-4 rounded-3xl mt-4">
                              <h4 className="text-[9px] font-black text-blue-400 uppercase ml-2 tracking-widest">Translate Event Content</h4>
                              {selectedTransRestData.other_options.map((opt: string) => {
-                                const originalVal = selectedTransRestData.category_collabs?.[opt] || '';
                                 return (
                                   <div key={opt} className="bg-white/50 p-4 rounded-2xl border border-blue-100 shadow-inner">
                                      <div className="flex justify-between items-end mb-2">
                                        <label className="text-[9px] font-black text-gray-400 uppercase ml-1">{opt}</label>
-                                       <button onClick={() => copyToDraft(opt, originalVal, false, true)} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy JA</button>
+                                       <button onClick={() => copyToDraft(opt, getSourceEvent(opt), false, true)} className="text-[9px] font-black text-gray-400 hover:text-blue-600 transition bg-white px-2 py-0.5 rounded border shadow-sm">📋 Copy {sourceLang.toUpperCase()}</button>
                                      </div>
                                      <textarea rows={2} value={transDraft.category_collabs?.[opt] || ''} onChange={(e) => setTransDraft({...transDraft, category_collabs: { ...transDraft.category_collabs, [opt]: e.target.value }})} className="w-full p-3 border border-blue-50 rounded-xl text-[12px] font-medium text-blue-900 bg-white focus:outline-none focus:border-blue-300" placeholder={`Local info for ${opt}...`} />
                                   </div>

@@ -1,287 +1,323 @@
-// /app/register/page.tsx
+// app/restaurant/[id]/page.tsx
 'use client';
 
-import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
-
-// SECURE: Explicitly excluding private admin columns from the delta update fetch
-const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options';
+import Link from 'next/link';
+import { useLanguage } from '@/contexts/LanguageContext';
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
 
-const BASELINE_SCHEMA = {
-  pageTitle: "ワセメシ情報ご提供のお願い",
-  pageDescription: "私たちは早稲田大学国際教養学部の「イートチーム」と申します。\n「ワセメシ」の魅力をもっと多くの方に知っていただき、地域のお店と学生・観光客をつなぐ多言語対応のレストラン検索サイト「イートダキマス」を作成しています。\n\n✅ 掲載はすべて無料です\n✅ 頂いた情報を元に、こちらで多言語（英語等）に翻訳して掲載します\n✅ 所要時間は5〜10分程度です",
-  sections: [
-    {
-      id: "sec_1",
-      title: "1. 店舗の基本情報",
-      description: "",
-      blocks: [
-        { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
-        { id: "b_address", type: "text", label: "住所 (🌐 サイト公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
-      ]
-    }
-  ]
-};
-
-// --- PUBLIC IMAGE UPLOADER COMPONENT ---
-const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: any, onImageSelected: (files: File | File[] | null) => void, currentValue: any }) => {
-  const [previews, setPreviews] = useState<{file?: File, url: string}[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+export default function RestaurantPage({ params }: { params: { id: string } }) {
+  const { currentLang, t } = useLanguage();
   
-  const maxLimit = block.maxImages || 1;
-  const isMultiple = maxLimit > 1;
+  const [restaurant, setRestaurant] = useState<any>(null);
+  const [masterFilters, setMasterFilters] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    if (!currentValue) {
-      setPreviews([]);
-    } else if (currentValue instanceof File) {
-      setPreviews([{ file: currentValue, url: URL.createObjectURL(currentValue) }]);
-    } else if (typeof currentValue === 'string' && currentValue.startsWith('http')) {
-      setPreviews([{ url: currentValue }]);
-    } else if (Array.isArray(currentValue)) {
-      const processedPreviews = currentValue.map((item: any) => {
-        if (item instanceof File) return { file: item, url: URL.createObjectURL(item) };
-        else if (typeof item === 'string' && item.startsWith('http')) return { url: item };
-        return null;
-      }).filter(Boolean);
-      setPreviews(processedPreviews as {file?: File, url: string}[]);
-    }
-  }, [currentValue]);
+    const fetchData = async () => {
+      try {
+        const [restRes, filterRes] = await Promise.all([
+          supabase.from('restaurants').select('*').eq('id', params.id).single(),
+          supabase.from('filter_options').select('*')
+        ]);
 
-  const handleFileChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || []);
-    if (!files.length) return;
-
-    const validImages = files.filter(f => f.type.startsWith('image/'));
-    
-    setPreviews(prev => {
-      const combined = [...prev];
-      for (const file of validImages) {
-        if (combined.length < maxLimit) combined.push({ file, url: URL.createObjectURL(file) });
+        if (restRes.error) throw restRes.error;
+        setRestaurant(restRes.data);
+        if (filterRes.data) setMasterFilters(filterRes.data);
+        
+      } catch (err: any) {
+        setError(err.message || 'Failed to load restaurant details.');
+      } finally {
+        setLoading(false);
       }
-      const filesOnly = combined.map(p => p.file).filter(Boolean) as File[];
-      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
-      onImageSelected(filePayload);
-      return combined;
-    });
-    if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    if (params.id) {
+      fetchData();
+    }
+  }, [params.id]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="flex flex-col items-center gap-4">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-orange-500"></div>
+          <p className="text-gray-400 font-bold tracking-widest text-sm uppercase">{t('loading', '読み込み中...')}</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error || !restaurant) {
+    return (
+      <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4 text-center">
+        <h1 className="text-3xl font-black text-gray-900 mb-2">{t('error_shop_not_found', '店舗が見つかりません')}</h1>
+        <p className="text-gray-500 font-medium mb-8 max-w-md">{error || t('error_shop_not_found_desc', 'お探しの店舗は見つかりませんでした。削除されたか、非公開になっています。')}</p>
+        <Link href="/" className="px-8 py-4 bg-gray-900 text-white font-black rounded-2xl hover:bg-black transition shadow-lg">
+          {t('btn_return_home', 'ホームに戻る')}
+        </Link>
+      </div>
+    );
+  }
+
+  const getLocalized = (key: string, originalValue: any) => {
+    if (currentLang === 'ja') return originalValue;
+    return restaurant?.translations?.[currentLang]?.[key] || originalValue;
   };
 
-  const removeImage = (index: number) => {
-    setPreviews(prev => {
-      const updated = [...prev];
-      updated.splice(index, 1);
-      const filesOnly = updated.map(p => p.file).filter(Boolean) as File[];
-      const filePayload = filesOnly.length === 0 ? null : (isMultiple ? filesOnly : filesOnly[0]);
-      onImageSelected(filePayload);
-      return updated;
-    });
+  const getTranslatedTag = (tagName: string) => {
+    if (currentLang === 'ja') return tagName;
+    const filterOption = masterFilters.find(f => f.name === tagName);
+    return filterOption?.translations?.[currentLang] || tagName;
+  };
+
+  const localizedTitle = getLocalized('title', restaurant.title);
+  const localizedDescription = getLocalized('description', restaurant.description);
+  const localizedTakeoutMenu = getLocalized('takeout_menu', restaurant.takeout_menu);
+  const localizedDiscountInfo = getLocalized('discount_info', restaurant.discount_info);
+  const localizedFullMenu = getLocalized('full_menu', restaurant.full_menu);
+  const localizedMenuItems = getLocalized('menu_items', restaurant.menu_items);
+
+  // 🚀 BULLETPROOF OPERATING HOURS PARSER
+  let parsedHours: any = {};
+  try {
+    if (typeof restaurant.operating_hours === 'string' && restaurant.operating_hours.trim().startsWith('{')) {
+      parsedHours = JSON.parse(restaurant.operating_hours);
+    } else if (typeof restaurant.operating_hours === 'object' && restaurant.operating_hours !== null) {
+      parsedHours = restaurant.operating_hours;
+    }
+  } catch (e) {
+    console.error('Failed to parse operating hours', e);
+  }
+
+  // Check if it's actually the new 7-Day grid data structure with at least one filled-in day
+  const hasValidGridData = typeof parsedHours === 'object' 
+    && parsedHours !== null 
+    && !Array.isArray(parsedHours) 
+    && DAYS.some(day => !!parsedHours[day]);
+
+  // Fallback engine for empty templates, strings, or old array formats
+  const getFallbackHours = () => {
+    if (!restaurant.operating_hours) return t('label_hours_not_provided', '営業時間が提供されていません');
+    
+    // Catch empty JSON grid templates (e.g., {"月曜日": "", ...})
+    if (typeof parsedHours === 'object' && parsedHours !== null && !Array.isArray(parsedHours)) {
+      const hasAnyValue = Object.values(parsedHours).some(val => typeof val === 'string' && val.trim() !== '');
+      if (!hasAnyValue) return t('label_hours_not_provided', '営業時間が提供されていません');
+    }
+
+    if (typeof restaurant.operating_hours === 'string') return restaurant.operating_hours;
+    if (Array.isArray(restaurant.operating_hours)) return restaurant.operating_hours.join('\n');
+    return JSON.stringify(restaurant.operating_hours);
   };
 
   return (
-    <div className="mt-2 w-full animate-in fade-in duration-300">
-      <input type="file" accept="image/*" multiple={isMultiple} onChange={handleFileChange} ref={fileInputRef} className="hidden" />
-      {previews.length > 0 ? (
-        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
-          <div className="flex justify-between items-end mb-4">
-            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} uploaded</span>
-            {previews.length < maxLimit && (
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
-                + Add More
-              </button>
-            )}
+    <div className="min-h-screen bg-gray-50 pb-24 animate-in fade-in duration-500">
+      
+      {/* HERO SECTION */}
+      <div className="w-full h-[40vh] md:h-[50vh] bg-gray-200 relative">
+        {restaurant.image_url ? (
+          <img src={restaurant.image_url} alt={localizedTitle} className="w-full h-full object-cover" />
+        ) : (
+          <div className="w-full h-full flex flex-col items-center justify-center text-gray-400 bg-gray-200">
+            <svg className="w-12 h-12 mb-2 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path>
+            </svg>
+            <span className="font-black tracking-widest uppercase text-xs">{t('no_photo', '写真なし')}</span>
           </div>
-          <div className={`grid gap-4 ${isMultiple ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:w-48'}`}>
-            {previews.map((preview, idx) => (
-              <div key={idx} className="relative group aspect-square">
-                <img src={preview.url} alt={`Upload ${idx + 1}`} className="w-full h-full object-cover rounded-xl border border-gray-300 shadow-sm bg-white" />
-                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform">✕</button>
-              </div>
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent"></div>
+        
+        <div className="absolute top-6 left-6 z-10">
+          <Link href="/" className="bg-white/20 backdrop-blur-md hover:bg-white/40 border border-white/30 text-white px-4 py-2 rounded-full font-bold text-sm flex items-center gap-2 transition">
+             ← {t('btn_back', '戻る')}
+          </Link>
+        </div>
+
+        <div className="absolute bottom-0 left-0 right-0 p-6 md:p-12 max-w-5xl mx-auto">
+          <div className="flex flex-wrap gap-2 mb-4">
+            {restaurant.restaurant_area && restaurant.restaurant_area.map((area: string, idx: number) => (
+              <span key={idx} className="bg-orange-500 text-white text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-wider">
+                {getTranslatedTag(area)}
+              </span>
             ))}
           </div>
+          <h1 className="text-4xl md:text-5xl font-black text-white mb-2 tracking-tight">{localizedTitle}</h1>
+          <p className="text-orange-400 font-black text-xl flex items-center gap-2">
+            ¥{restaurant.restaurant_price || '---'} 
+            <span className="text-gray-300 font-medium text-sm">{t('label_avg_per_person', '平均予算')}</span>
+          </p>
         </div>
-      ) : (
-        <button type="button" onClick={() => fileInputRef.current?.click()} className="w-full py-12 px-4 flex flex-col items-center justify-center border-2 border-dashed border-gray-300 rounded-2xl bg-gray-50 hover:bg-white hover:border-orange-400 hover:shadow-md transition-all group text-gray-500">
-          <div className="bg-white p-3 rounded-full shadow-sm mb-3 group-hover:scale-110 transition-transform">
-            <svg className="w-8 h-8 text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-            </svg>
+      </div>
+
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 mt-8 grid grid-cols-1 lg:grid-cols-3 gap-8 relative">
+        
+        {/* MAIN CONTENT (LEFT COLUMN) */}
+        <div className="lg:col-span-2 space-y-8">
+          
+          <div className="flex flex-wrap gap-2">
+            {['cuisine', 'food_restrictions', 'other_options'].map((field) => (
+              (restaurant[field] || []).map((tag: string, idx: number) => (
+                <span key={`${field}-${idx}`} className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-700 shadow-sm">
+                  {getTranslatedTag(tag)}
+                </span>
+              ))
+            ))}
           </div>
-          <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
-            Tap to Upload {isMultiple ? `(Up to ${maxLimit} photos)` : 'Photo'}
-          </span>
-          {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
-        </button>
-      )}
+
+          {localizedDescription && (
+            <section className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100">
+              <h2 className="text-xl font-black text-gray-900 mb-4 flex items-center gap-2">{t('label_about_shop', '店舗について')}</h2>
+              <p className="text-gray-600 font-medium leading-relaxed whitespace-pre-wrap">{localizedDescription}</p>
+            </section>
+          )}
+
+          <section className="mt-8">
+            <h2 className="text-2xl font-black text-gray-900 flex items-center gap-3 mb-6">
+              📋 {t('label_menu', 'メニュー')}
+            </h2>
+            <div className="bg-gray-50 rounded-[32px] p-8 md:p-10 border border-gray-100 shadow-sm">
+              
+              {localizedMenuItems && localizedMenuItems.length > 0 ? (
+                <div className="overflow-x-auto mb-8">
+                  <table className="w-full text-left border-collapse min-w-[400px]">
+                    <tbody className="divide-y divide-gray-200/60">
+                      {localizedMenuItems.map((item: any, idx: number) => (
+                        <tr key={idx} className="group">
+                          <td className="py-5 pr-4 align-top w-2/3">
+                            <div className="font-black text-gray-900 text-lg mb-1">{item.name}</div>
+                            {item.description && <div className="text-sm font-medium text-gray-500 leading-relaxed">{item.description}</div>}
+                          </td>
+                          <td className="py-5 font-black text-gray-900 text-right align-top whitespace-nowrap text-lg">
+                            ¥{item.price || '---'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : localizedFullMenu ? (
+                <div className="mb-8 whitespace-pre-wrap font-medium text-gray-700 leading-relaxed">
+                  {localizedFullMenu}
+                </div>
+              ) : (
+                <p className="text-gray-500 italic font-medium mb-8">{t('label_menu_coming_soon', 'メニュー詳細は準備中です。')}</p>
+              )}
+
+              {localizedTakeoutMenu && (
+                <>
+                  <hr className="border-gray-200/60 mb-8" />
+                  <div>
+                    <h3 className="text-xs font-black text-[#8B3A1A] uppercase tracking-widest mb-3">{t('label_takeout_menu', 'テイクアウトメニュー')}</h3>
+                    <p className="text-gray-800 font-bold leading-relaxed whitespace-pre-wrap">{localizedTakeoutMenu}</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </section>
+          
+          {restaurant.image_urls && restaurant.image_urls.length > 0 && (
+            <section className="space-y-4">
+              <h2 className="text-xl font-black text-gray-900 px-2">{t('label_gallery', 'ギャラリー')}</h2>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {restaurant.image_urls.map((url: string, idx: number) => (
+                  <div key={idx} className="aspect-square bg-gray-200 rounded-[24px] overflow-hidden border border-gray-100 shadow-sm">
+                    <img src={url} alt={`Gallery image ${idx + 1}`} className="w-full h-full object-cover hover:scale-110 transition-transform duration-500 cursor-pointer" />
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
+
+        {/* SIDEBAR INFO (RIGHT COLUMN) */}
+        <div className="space-y-6">
+          <div className="bg-white p-8 rounded-[32px] shadow-sm border border-gray-100 space-y-8 sticky top-8">
+            
+            <div>
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">{t('label_location', 'アクセス')}</h3>
+              <p className="text-gray-900 font-bold text-sm leading-relaxed">{restaurant.address || t('label_address_not_provided', '住所が提供されていません')}</p>
+              
+              {restaurant.lat && restaurant.lng && (
+                 <a href={`https://www.google.com/maps/search/?api=1&query=${restaurant.lat},${restaurant.lng}`} target="_blank" rel="noopener noreferrer" className="mt-4 flex items-center justify-center w-full py-3 bg-gray-100 hover:bg-gray-200 rounded-xl text-xs font-black text-gray-700 transition">
+                   {t('btn_open_maps', 'Google Mapsで開く')}
+                 </a>
+              )}
+              
+              {/* 🚀 BULLETPROOF WEBSITE LINK */}
+              {restaurant.website_url && (
+                <a 
+                  href={restaurant.website_url.startsWith('http') ? restaurant.website_url : `https://${restaurant.website_url}`} 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="mt-3 flex items-center justify-center w-full py-3 bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-xl text-xs font-black text-blue-600 transition"
+                >
+                  {t('btn_visit_website', '公式サイトを見る')}
+                </a>
+              )}
+            </div>
+
+            <hr className="border-gray-100" />
+
+            {/* DYNAMIC OPERATING HOURS BLOCK */}
+            <div>
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">{t('label_operating_hours', '営業時間')}</h3>
+              {hasValidGridData ? (
+                <div className="space-y-3">
+                  {DAYS.map(day => (
+                    parsedHours[day] ? (
+                      <div key={day} className="flex justify-between items-center text-sm">
+                        <span className="font-bold text-gray-500 text-xs">{t(`day_${day}`, day)}</span>
+                        <span className="font-black text-gray-900">{parsedHours[day]}</span>
+                      </div>
+                    ) : null
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-900 font-black text-sm whitespace-pre-wrap">{getFallbackHours()}</p>
+              )}
+            </div>
+
+            <hr className="border-gray-100" />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <h3 className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">{t('label_total_seats', '席数')}</h3>
+                <p className="font-black text-base text-gray-900">{restaurant.total_seats || '---'}</p>
+              </div>
+              <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
+                <h3 className="text-[9px] font-black text-gray-400 uppercase tracking-widest mb-1">{t('label_avg_stay', '平均滞在時間')}</h3>
+                <p className="font-black text-base text-gray-900">{restaurant.avg_stay_time || '---'}</p>
+              </div>
+            </div>
+
+            {restaurant.payment_methods && restaurant.payment_methods.length > 0 && (
+              <div>
+                <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3">{t('label_payments', '決済方法')}</h3>
+                <div className="flex flex-wrap gap-2">
+                  {restaurant.payment_methods.map((method: string, idx: number) => (
+                    <span key={idx} className="bg-green-50 text-green-700 border border-green-200 text-[10px] font-black px-2.5 py-1 rounded-md uppercase tracking-wider">
+                      {getTranslatedTag(method)}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+            
+            {localizedDiscountInfo && (
+              <div className="bg-yellow-50 p-4 rounded-2xl border border-yellow-200">
+                <h3 className="text-[10px] font-black text-yellow-600 uppercase tracking-widest mb-2 flex items-center gap-1.5">
+                  ⭐ {t('label_special_offers', '特別オファー')}
+                </h3>
+                <p className="text-sm font-bold text-yellow-900">{localizedDiscountInfo}</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
-};
-
-export default function RegisterRestaurant() {
-  const [schema, setSchema] = useState<any>(null);
-  const [formData, setFormData] = useState<Record<string, any>>({ hours_source: 'Googleマップと同じ' });
-  const [loading, setLoading] = useState(false);
-  const [message, setMessage] = useState('');
-  
-  // Delta Update State
-  const [isUpdateMode, setIsUpdateMode] = useState<boolean>(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<any[]>([]);
-  const [isSearching, setIsSearching] = useState(false);
-  const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
-
-  const [activeEvents, setActiveEvents] = useState<any[]>([]);
-  const [selectedEvents, setSelectedEvents] = useState<string[]>([]);
-  const [ads, setAds] = useState<any[]>([]);
-  const [mounted, setMounted] = useState(false);
-  const [isIframe, setIsIframe] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    setIsIframe(window.self !== window.top);
-
-    const fetchData = async () => {
-      try {
-        const [schemaRes, eventsRes, adsRes] = await Promise.all([
-          supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle(),
-          supabase.from('custom_categories').select('*').order('created_at'),
-          supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/register'])
-        ]);
-
-        if (schemaRes.data?.data?.sections?.length > 0) setSchema(schemaRes.data.data);
-        else setSchema(BASELINE_SCHEMA);
-
-        if (eventsRes.data) {
-          const today = new Date().toISOString().split('T')[0]; 
-          const validEvents = eventsRes.data.filter(e => {
-            if (e.is_constant) return true;
-            const start = e.start_date ? e.start_date.split('T')[0] : null;
-            const end = e.end_date ? e.end_date.split('T')[0] : null;
-            if (start && end) return today >= start && today <= end;
-            if (start) return today >= start;
-            if (end) return today <= end;
-            return true;
-          });
-          setActiveEvents(validEvents);
-        }
-        if (adsRes.data) setAds(adsRes.data);
-      } catch (err) {
-        setSchema(BASELINE_SCHEMA);
-      }
-    };
-    fetchData();
-  }, []);
-
-  useEffect(() => {
-    const delayDebounceFn = setTimeout(async () => {
-      if (searchQuery.trim().length > 1 && !updateTargetId) {
-        setIsSearching(true);
-        const { data } = await supabase.from('restaurants').select('id, title, address').eq('status', 'approved').ilike('title', `%${searchQuery}%`).limit(10);
-        setSearchResults(data || []);
-        setIsSearching(false);
-      } else {
-        setSearchResults([]);
-      }
-    }, 300);
-    return () => clearTimeout(delayDebounceFn);
-  }, [searchQuery, updateTargetId]);
-
-  const handleSelectRestaurantToUpdate = async (restaurant: any) => {
-    setUpdateTargetId(restaurant.id);
-    setSearchQuery(restaurant.title);
-    setSearchResults([]);
-    setLoading(true);
-
-    const { data, error } = await supabase.from('restaurants').select(SAFE_UPDATE_COLUMNS).eq('id', restaurant.id).single();
-    
-    setLoading(false);
-    if (data) {
-      const newFormData: any = {};
-      Object.keys(data).forEach(key => {
-        if (key !== 'custom_fields' && key !== 'other_options') newFormData[key] = data[key];
-      });
-      if (data.custom_fields) {
-        Object.keys(data.custom_fields).forEach(key => { newFormData[`custom_fields.${key}`] = data.custom_fields[key]; });
-      }
-      if (!newFormData.hours_source) newFormData.hours_source = data.operating_hours || 'Googleマップと同じ';
-      
-      setFormData(newFormData);
-      setSelectedEvents(data.other_options || []);
-    } else if (error) {
-      setMessage(`データの取得に失敗しました: ${error.message}`);
-    }
-  };
-
-  const handleInputChange = (dbColumn: string, value: any) => setFormData(prev => ({ ...prev, [dbColumn]: value }));
-
-  const handleCheckboxArray = (dbColumn: string, option: string, isChecked: boolean) => {
-    setFormData(prev => {
-      const currentArray = prev[dbColumn] || [];
-      if (isChecked) return { ...prev, [dbColumn]: [...currentArray, option] };
-      return { ...prev, [dbColumn]: currentArray.filter((o: string) => o !== option) };
-    });
-  };
-
-  const handleEventToggle = (eventName: string, isChecked: boolean) => {
-    if (isChecked) setSelectedEvents(prev => [...prev, eventName]);
-    else setSelectedEvents(prev => prev.filter(e => e !== eventName));
-  };
-
-  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    setLoading(true);
-    setMessage('');
-
-    const payload: any = { status: 'pending', custom_fields: {}, other_options: selectedEvents };
-    
-    if (isUpdateMode && updateTargetId) {
-      payload.custom_fields.update_target_id = updateTargetId;
-      payload.custom_fields.update_target_name = searchQuery;
-    }
-    
-    for (const key of Object.keys(formData)) {
-      if (key.startsWith('hours_') && key !== 'hours_source') continue;
-      
-      const value = formData[key];
-      
-      if (value instanceof File || (Array.isArray(value) && value[0] instanceof File)) {
-        const files = Array.isArray(value) ? value : [value];
-        const uploadedUrls: string[] = [];
-
-        for (const file of files) {
-          const fileExt = file.name.split('.').pop();
-          const fileName = `public-upload-${Date.now()}-${Math.random().toString(36).substring(2, 9)}.${fileExt}`;
-          try {
-            const { error: uploadError } = await supabase.storage.from('restaurant-images').upload(fileName, file);
-            if (uploadError) throw uploadError;
-            const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
-            uploadedUrls.push(publicData.publicUrl);
-          } catch (uploadErr: any) {
-            setMessage(`Image upload failed: ${uploadErr.message}`);
-            setLoading(false);
-            return;
-          }
-        }
-        
-        const finalUrlData = key === 'image_urls' ? uploadedUrls : uploadedUrls[0];
-        if (key.startsWith('custom_fields.')) payload.custom_fields[key.replace('custom_fields.', '')] = finalUrlData;
-        else payload[key] = finalUrlData;
-        continue;
-      }
-
-      if (key.startsWith('custom_fields.')) payload.custom_fields[key.replace('custom_fields.', '')] = value;
-      else payload[key] = value;
-    }
-
-    let finalHours: any = '';
-    const hSource = formData['hours_source'];
-    if (hSource === 'ここで手動で入力する') {
-      const hoursObj: Record<string, string> = {};
-      DAYS.forEach(day => { hoursObj[day] = formData[`hours_${day}`] || ''; });
-      finalHours = JSON.stringify(hoursObj);
-    } else {
-      finalHours = hSource || '';
-    }
+}
