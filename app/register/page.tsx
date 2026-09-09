@@ -1,4 +1,5 @@
 // /app/register/page.tsx
+// /app/register/page.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent, Suspense } from 'react';
@@ -18,6 +19,14 @@ const BASELINE_SCHEMA = {
       blocks: [
         { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
         { id: "b_address", type: "text", label: "住所 (🌐 サイト公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
+      ]
+    },
+    {
+      id: "sec_menu",
+      title: "2. 詳細メニュー",
+      description: "店舗の代表的なメニューを追加してください。",
+      blocks: [
+        { id: "b_menu_table", type: "menu_builder", label: "詳細メニュー登録", dbColumn: "menu_items", required: false }
       ]
     },
     {
@@ -132,8 +141,10 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
         <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
           <div className="flex justify-between items-end mb-4">
             <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} 枚アップロード済み</span>
+            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} 枚アップロード済み</span>
             {previews.length < maxLimit && (
               <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
+                + 画像を追加
                 + 画像を追加
               </button>
             )}
@@ -155,6 +166,7 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
             </svg>
           </div>
           <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
+            タップして画像をアップロード {isMultiple ? `(最大 ${maxLimit} 枚)` : ''}
             タップして画像をアップロード {isMultiple ? `(最大 ${maxLimit} 枚)` : ''}
           </span>
           {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
@@ -239,6 +251,7 @@ function RegisterRestaurant() {
 
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
+      if (searchQuery.trim().length > 1 && !updateTargetId && !selectedTarget) {
       if (searchQuery.trim().length > 1 && !updateTargetId && !selectedTarget) {
         setIsSearching(true);
         const { data } = await supabase.from('restaurants').select('id, title, address').eq('status', 'approved').ilike('title', `%${searchQuery}%`).limit(10);
@@ -387,6 +400,7 @@ function RegisterRestaurant() {
             uploadedUrls.push(publicData.publicUrl);
           } catch (uploadErr: any) {
             setMessage(`画像のアップロードに失敗しました: ${uploadErr.message}`);
+            setMessage(`画像のアップロードに失敗しました: ${uploadErr.message}`);
             setLoading(false);
             return;
           }
@@ -413,6 +427,7 @@ function RegisterRestaurant() {
       finalHours = hSource || '';
     }
     
+    
     payload.operating_hours = finalHours;
 
     const { error } = await supabase.from('restaurants').insert([payload]);
@@ -420,11 +435,14 @@ function RegisterRestaurant() {
     setLoading(false);
     if (error) {
       setMessage(`エラーが発生しました: ${error.message}`);
+      setMessage(`エラーが発生しました: ${error.message}`);
     } else {
+      setMessage('情報が正常に送信されました！ご協力ありがとうございます。');
       setMessage('情報が正常に送信されました！ご協力ありがとうございます。');
       setFormData({ hours_source: 'Googleマップと同じ' });
       setSelectedEvents([]);
       setUpdateTargetId(null);
+      setSelectedTarget(null);
       setSelectedTarget(null);
       setSearchQuery('');
       setRestaurantPin('');
@@ -514,6 +532,7 @@ function RegisterRestaurant() {
     );
   };
 
+  if (!mounted || !schema) return null;
   if (!mounted || !schema) return null;
 
   // --- MAGIC LINK RESET PIN SCREEN ---
@@ -677,6 +696,8 @@ function RegisterRestaurant() {
                 {loading ? '送信中...' : '店舗情報を送信する'}
               </button>
             </div>
+          </form>
+        )}
           </form>
         )}
       </div>

@@ -1,6 +1,8 @@
 // app/restaurant/[id]/page.tsx
+// app/restaurant/[id]/page.tsx
 'use client';
 
+import React, { useEffect, useState } from 'react';
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
