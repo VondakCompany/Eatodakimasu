@@ -3,7 +3,6 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { useLanguage } from '@/contexts/LanguageContext';
