@@ -24,4 +24,4 @@ export type ChangeLog = {
       }
       
       return logs;
-    }
+    } 
