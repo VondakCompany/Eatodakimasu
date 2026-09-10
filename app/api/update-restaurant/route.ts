@@ -1,5 +1,5 @@
+//app/api/update-restaurant/route.ts
 import { NextResponse } from 'next/server';
-import { generateDiffLog } from '@/lib/diffGenerator';
 import { supabaseAdmin } from '@/lib/supabaseClient';
 
 export async function POST(request: Request) {
@@ -47,8 +47,15 @@ export async function POST(request: Request) {
       }, { status: 404 });
     }
 
-    // 2. Generate the diff list
-    const changesList = generateDiffLog(currentState, delta);
+    // 2. Generate the diff list inline to replace missing module
+    const changesList = Object.keys(delta).map(key => {
+      return {
+        field: key,
+        oldValue: currentState[key] !== undefined ? currentState[key] : null,
+        newValue: delta[key],
+        message: `Updated ${key}`
+      };
+    });
 
     // 3. Exit early if there are no real changes
     if (changesList.length === 0) {

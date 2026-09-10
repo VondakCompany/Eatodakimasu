@@ -1,5 +1,4 @@
 // /app/register/page.tsx
-// /app/register/page.tsx
 'use client';
 
 import React, { useState, useEffect, useRef, ChangeEvent, Suspense } from 'react';
@@ -19,14 +18,6 @@ const BASELINE_SCHEMA = {
       blocks: [
         { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
         { id: "b_address", type: "text", label: "住所 (🌐 サイト公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
-      ]
-    },
-    {
-      id: "sec_menu",
-      title: "2. 詳細メニュー",
-      description: "店舗の代表的なメニューを追加してください。",
-      blocks: [
-        { id: "b_menu_table", type: "menu_builder", label: "詳細メニュー登録", dbColumn: "menu_items", required: false }
       ]
     },
     {
@@ -141,10 +132,8 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
         <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
           <div className="flex justify-between items-end mb-4">
             <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} 枚アップロード済み</span>
-            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} 枚アップロード済み</span>
             {previews.length < maxLimit && (
               <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
-                + 画像を追加
                 + 画像を追加
               </button>
             )}
@@ -166,7 +155,6 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
             </svg>
           </div>
           <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
-            タップして画像をアップロード {isMultiple ? `(最大 ${maxLimit} 枚)` : ''}
             タップして画像をアップロード {isMultiple ? `(最大 ${maxLimit} 枚)` : ''}
           </span>
           {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
@@ -192,13 +180,11 @@ function RegisterRestaurant() {
   const [isSearching, setIsSearching] = useState(false);
   const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
   
-  // Security Gate State (4-digit Restaurant PIN)
   const [selectedTarget, setSelectedTarget] = useState<any>(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
   const [restaurantPin, setRestaurantPin] = useState('');
 
-  // Magic Link Reset State
   const [isResetMode, setIsResetMode] = useState(false);
   const [newResetPin, setNewResetPin] = useState('');
   const [resetSuccess, setResetSuccess] = useState(false);
@@ -252,7 +238,6 @@ function RegisterRestaurant() {
   useEffect(() => {
     const delayDebounceFn = setTimeout(async () => {
       if (searchQuery.trim().length > 1 && !updateTargetId && !selectedTarget) {
-      if (searchQuery.trim().length > 1 && !updateTargetId && !selectedTarget) {
         setIsSearching(true);
         const { data } = await supabase.from('restaurants').select('id, title, address').eq('status', 'approved').ilike('title', `%${searchQuery}%`).limit(10);
         setSearchResults(data || []);
@@ -264,7 +249,6 @@ function RegisterRestaurant() {
     return () => clearTimeout(delayDebounceFn);
   }, [searchQuery, updateTargetId, selectedTarget]);
 
-  // --- HANDLE PIN RESET LINK ---
   const handleResetPinSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -300,7 +284,6 @@ function RegisterRestaurant() {
     setPinError('');
   };
 
-  // --- SECURE PIN VERIFICATION ---
   const verifyPinAndLoad = async () => {
     setPinError('');
     setLoading(true);
@@ -377,7 +360,7 @@ function RegisterRestaurant() {
       payload.custom_fields.update_target_id = updateTargetId;
       payload.custom_fields.update_target_name = searchQuery;
     } else {
-      payload.custom_fields.edit_pin = restaurantPin; // Save the newly set PIN
+      payload.custom_fields.edit_pin = restaurantPin; 
     }
     
     for (const key of Object.keys(formData)) {
@@ -399,7 +382,6 @@ function RegisterRestaurant() {
             const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
             uploadedUrls.push(publicData.publicUrl);
           } catch (uploadErr: any) {
-            setMessage(`画像のアップロードに失敗しました: ${uploadErr.message}`);
             setMessage(`画像のアップロードに失敗しました: ${uploadErr.message}`);
             setLoading(false);
             return;
@@ -427,7 +409,6 @@ function RegisterRestaurant() {
       finalHours = hSource || '';
     }
     
-    
     payload.operating_hours = finalHours;
 
     const { error } = await supabase.from('restaurants').insert([payload]);
@@ -435,14 +416,11 @@ function RegisterRestaurant() {
     setLoading(false);
     if (error) {
       setMessage(`エラーが発生しました: ${error.message}`);
-      setMessage(`エラーが発生しました: ${error.message}`);
     } else {
-      setMessage('情報が正常に送信されました！ご協力ありがとうございます。');
       setMessage('情報が正常に送信されました！ご協力ありがとうございます。');
       setFormData({ hours_source: 'Googleマップと同じ' });
       setSelectedEvents([]);
       setUpdateTargetId(null);
-      setSelectedTarget(null);
       setSelectedTarget(null);
       setSearchQuery('');
       setRestaurantPin('');
@@ -533,9 +511,7 @@ function RegisterRestaurant() {
   };
 
   if (!mounted || !schema) return null;
-  if (!mounted || !schema) return null;
 
-  // --- MAGIC LINK RESET PIN SCREEN ---
   if (isResetMode) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
@@ -659,7 +635,6 @@ function RegisterRestaurant() {
               </div>
             ))}
 
-            {/* MANDATORY SECURITY PIN BLOCK FOR NEW REGISTRATIONS */}
             {!isUpdateMode && (
               <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200">
                 <h2 className="text-2xl font-black text-gray-900 mb-2 flex items-center gap-2">
@@ -696,8 +671,6 @@ function RegisterRestaurant() {
                 {loading ? '送信中...' : '店舗情報を送信する'}
               </button>
             </div>
-          </form>
-        )}
           </form>
         )}
       </div>
