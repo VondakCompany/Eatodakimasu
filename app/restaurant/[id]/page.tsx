@@ -1,13 +1,68 @@
 // app/restaurant/[id]/page.tsx
-// app/restaurant/[id]/page.tsx
 'use client';
 
 import React, { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabaseClient';
 import Link from 'next/link';
 import { useLanguage } from '@/contexts/LanguageContext';
+import * as JapaneseHolidays from 'japanese-holidays';
 
 const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
+
+// Helper 1: Get today's key in JST (Japanese Standard Time)
+const getTodayKey = () => {
+  const now = new Date();
+  const jstStr = now.toLocaleString("en-US", {timeZone: "Asia/Tokyo"});
+  const jstDate = new Date(jstStr);
+  
+  if (JapaneseHolidays.isHoliday(jstDate)) {
+    return '祝日';
+  }
+  
+  const days = ['日曜日', '月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日'];
+  return days[jstDate.getDay()];
+};
+
+// Helper 2: Parse time strings and check against current JST time
+const checkIfOpenRightNow = (hoursStr: string) => {
+  if (!hoursStr || hoursStr.includes('休業') || hoursStr.includes('休み')) return false;
+  
+  const now = new Date();
+  const jstStr = now.toLocaleString("en-US", {timeZone: "Asia/Tokyo"});
+  const jstDate = new Date(jstStr);
+  const currentMinutes = jstDate.getHours() * 60 + jstDate.getMinutes();
+
+  // Match time blocks like "11:00-15:00" or "17:00 ~ 23:30"
+  const timeRanges = hoursStr.matchAll(/(\d{1,2}):(\d{2})\s*[-~～]\s*(\d{1,2}):(\d{2})/g);
+  let isOpen = false;
+
+  for (const match of Array.from(timeRanges)) {
+    const startH = parseInt(match[1], 10);
+    const startM = parseInt(match[2], 10);
+    let endH = parseInt(match[3], 10);
+    const endM = parseInt(match[4], 10);
+
+    const startTotal = startH * 60 + startM;
+    let endTotal = endH * 60 + endM;
+
+    // Handle late night wrap-around (e.g., closes at 02:00 or 26:00)
+    if (endH < startH || endH >= 24) {
+      if (endH < startH) endTotal += 24 * 60; 
+    }
+
+    // Adjust current time if checking past midnight for late-night spots
+    let adjustedCurrent = currentMinutes;
+    if (currentMinutes < startTotal && endTotal > 24 * 60) {
+       adjustedCurrent += 24 * 60;
+    }
+
+    if (adjustedCurrent >= startTotal && adjustedCurrent <= endTotal) {
+      isOpen = true;
+      break;
+    }
+  }
+  return isOpen;
+};
 
 export default function RestaurantPage({ params }: { params: { id: string } }) {
   const { currentLang, t } = useLanguage();
@@ -94,17 +149,14 @@ export default function RestaurantPage({ params }: { params: { id: string } }) {
     console.error('Failed to parse operating hours', e);
   }
 
-  // Check if it's actually the new 7-Day grid data structure with at least one filled-in day
   const hasValidGridData = typeof parsedHours === 'object' 
     && parsedHours !== null 
     && !Array.isArray(parsedHours) 
     && DAYS.some(day => !!parsedHours[day]);
 
-  // Fallback engine for empty templates, strings, or old array formats
   const getFallbackHours = () => {
     if (!restaurant.operating_hours) return t('label_hours_not_provided', '営業時間が提供されていません');
     
-    // Catch empty JSON grid templates (e.g., {"月曜日": "", ...})
     if (typeof parsedHours === 'object' && parsedHours !== null && !Array.isArray(parsedHours)) {
       const hasAnyValue = Object.values(parsedHours).some(val => typeof val === 'string' && val.trim() !== '');
       if (!hasAnyValue) return t('label_hours_not_provided', '営業時間が提供されていません');
@@ -114,6 +166,9 @@ export default function RestaurantPage({ params }: { params: { id: string } }) {
     if (Array.isArray(restaurant.operating_hours)) return restaurant.operating_hours.join('\n');
     return JSON.stringify(restaurant.operating_hours);
   };
+
+  // Pre-calculate today's key for the grid rendering
+  const todayKey = getTodayKey();
 
   return (
     <div className="min-h-screen bg-gray-50 pb-24 animate-in fade-in duration-500">
@@ -248,7 +303,6 @@ export default function RestaurantPage({ params }: { params: { id: string } }) {
                  </a>
               )}
               
-              {/* 🚀 BULLETPROOF WEBSITE LINK */}
               {restaurant.website_url && (
                 <a 
                   href={restaurant.website_url.startsWith('http') ? restaurant.website_url : `https://${restaurant.website_url}`} 
@@ -263,19 +317,44 @@ export default function RestaurantPage({ params }: { params: { id: string } }) {
 
             <hr className="border-gray-100" />
 
-            {/* DYNAMIC OPERATING HOURS BLOCK */}
+            {/* DYNAMIC OPERATING HOURS BLOCK (Minimalist) */}
             <div>
               <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">{t('label_operating_hours', '営業時間')}</h3>
               {hasValidGridData ? (
-                <div className="space-y-3">
-                  {DAYS.map(day => (
-                    parsedHours[day] ? (
-                      <div key={day} className="flex justify-between items-center text-sm">
-                        <span className="font-bold text-gray-500 text-xs">{t(`day_${day}`, day)}</span>
-                        <span className="font-black text-gray-900">{parsedHours[day]}</span>
+                <div className="flex flex-col gap-2">
+                  {DAYS.map((day) => {
+                    const dayHours = parsedHours[day];
+                    if (!dayHours) return null;
+
+                    const isToday = day === todayKey;
+                    const isCurrentlyOpen = isToday ? checkIfOpenRightNow(dayHours) : false;
+
+                    let labelColor = 'text-gray-500';
+                    let timeColor = 'text-gray-900';
+                    let fontWeigh = 'font-bold';
+
+                    if (isToday) {
+                      fontWeigh = 'font-black';
+                      if (isCurrentlyOpen) {
+                        labelColor = 'text-green-600';
+                        timeColor = 'text-green-600';
+                      } else {
+                        labelColor = 'text-red-600';
+                        timeColor = 'text-red-600';
+                      }
+                    }
+
+                    return (
+                      <div key={day} className="flex justify-between items-center text-sm py-1">
+                        <span className={`${fontWeigh} ${labelColor} text-xs`}>
+                          {t(`day_${day}`, day)}
+                        </span>
+                        <span className={`${fontWeigh} ${timeColor}`}>
+                          {dayHours}
+                        </span>
                       </div>
-                    ) : null
-                  ))}
+                    );
+                  })}
                 </div>
               ) : (
                 <p className="text-gray-900 font-black text-sm whitespace-pre-wrap">{getFallbackHours()}</p>
