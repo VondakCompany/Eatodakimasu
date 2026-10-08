@@ -111,14 +111,30 @@ const ViewField = ({ label, val, fullWidth = false }: { label: string, val: any,
 export const RestaurantCard = ({ restaurant, tab, onEdit, onStatusUpdate, onDelete, formBaseColumns = [], liveRestaurants = [] }: any) => {
   const [isViewing, setIsViewing] = useState(false);
   
+  // 🚀 DASHBOARD INJECTION: State to track if the link was copied successfully
+  const [copied, setCopied] = useState(false);
+  
   const isDelta = !!restaurant.custom_fields?.update_target_id;
   
-  // 🚀 FIX: Convert both IDs to Strings so JavaScript strict equality works perfectly
   const originalRestaurant = isDelta && liveRestaurants.length > 0 
     ? liveRestaurants.find((r: any) => String(r.id) === String(restaurant.custom_fields.update_target_id)) 
     : null;
     
   const changedFields = isDelta ? getChangedFields(originalRestaurant, restaurant, formBaseColumns) : [];
+
+  // 🚀 DASHBOARD INJECTION: The secure clipboard function
+  const copyOwnerLink = () => {
+    if (!restaurant.owner_token) {
+      alert('Owner token not found. Ensure the admin data fetch includes the "owner_token" column.');
+      return;
+    }
+    const url = `${window.location.origin}/manage/${restaurant.owner_token}`;
+    navigator.clipboard.writeText(url);
+    setCopied(true);
+    
+    // Reset the button visual back to normal after 2 seconds
+    setTimeout(() => setCopied(false), 2000);
+  };
   
   return (
     <div className={`p-6 rounded-[32px] shadow-sm border flex flex-col hover:shadow-xl transition-all duration-300 relative ${isDelta ? 'bg-rose-50 border-rose-200' : 'bg-white border-gray-200'}`}>
@@ -178,12 +194,26 @@ export const RestaurantCard = ({ restaurant, tab, onEdit, onStatusUpdate, onDele
         </div>
       )}
 
-      <div className={`bg-slate-50 p-3 rounded-xl border border-slate-200 mb-5 space-y-1 ${isDelta ? 'mt-auto' : ''}`}>
+      <div className={`bg-slate-50 p-3 rounded-xl border border-slate-200 mb-4 space-y-1 ${isDelta ? 'mt-auto' : ''}`}>
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-wider mb-1 flex items-center gap-1.5"><Icons.Lock className="w-3 h-3" /> Private Contact</p>
         <p className="text-xs font-bold text-slate-700 flex justify-between"><span className="text-slate-400">担当者:</span> {restaurant.contact_name || '未設定'}</p>
         <p className="text-xs font-bold text-slate-700 flex justify-between"><span className="text-slate-400">電話:</span> {restaurant.contact_phone || '未設定'}</p>
         <p className="text-xs font-bold text-slate-700 flex justify-between truncate gap-2"><span className="text-slate-400 shrink-0">メール:</span> {restaurant.contact_email || '未設定'}</p>
       </div>
+
+      {/* 🚀 DASHBOARD INJECTION: QUICK COPY LINK BUTTON */}
+      {restaurant.owner_token && !isDelta && (
+        <button
+          onClick={copyOwnerLink}
+          className={`w-full mb-3 py-3 px-4 rounded-xl text-xs font-black transition-all shadow-sm border flex items-center justify-center gap-2 ${
+            copied 
+              ? 'bg-green-50 text-green-700 border-green-200 scale-[0.98]' 
+              : 'bg-white text-blue-600 border-blue-100 hover:bg-blue-50 hover:border-blue-200'
+          }`}
+        >
+          {copied ? '✅ Copied to Clipboard!' : '🔗 Copy Owner Manage Link'}
+        </button>
+      )}
 
       {/* --- ACTION BUTTONS (Updated with the View Button) --- */}
       <div className="flex gap-2 mt-auto">
