@@ -9,17 +9,24 @@ export default function SetPassword() {
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [checkingSession, setCheckingSession] = useState(true);
   const [error, setError] = useState('');
   const router = useRouter();
 
   useEffect(() => {
-    const checkSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session) {
+    // Listen for auth state changes (e.g. initial token exchange from URL)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session) {
+        setError('');
+      } else {
         setError("Invalid or expired invite link. Please contact your administrator.");
       }
+      setCheckingSession(false);
+    });
+
+    return () => {
+      subscription.unsubscribe();
     };
-    checkSession();
   }, []);
 
   const handleUpdatePassword = async (e: React.FormEvent) => {
@@ -46,10 +53,20 @@ export default function SetPassword() {
       setError(updateError.message);
       setLoading(false);
     } else {
-      alert("✅ Password set successfully! Redirecting to CMS...");
-      router.push('/admin'); // Assuming /admin is your dashboard
+      // Password updated successfully
+      router.push('/admin');
     }
   };
+
+  if (checkingSession) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="text-gray-400 font-bold text-sm animate-pulse">
+          Verifying session link...
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 px-6">
@@ -57,7 +74,11 @@ export default function SetPassword() {
         <h1 className="text-3xl font-black mb-2 text-gray-900 text-center">Welcome Aboard</h1>
         <p className="text-sm font-bold text-gray-500 text-center mb-8">Please set a secure password for your account.</p>
         
-        {error && <div className="mb-6 text-xs font-bold text-red-500 bg-red-50 p-4 rounded-xl border border-red-100">{error}</div>}
+        {error && (
+          <div className="mb-6 text-xs font-bold text-red-500 bg-red-50 p-4 rounded-xl border border-red-100">
+            {error}
+          </div>
+        )}
         
         <div className="space-y-4 mb-8">
           <div>
@@ -85,7 +106,7 @@ export default function SetPassword() {
 
         <button 
           type="submit" 
-          disabled={loading || !!error.includes('Invalid')} 
+          disabled={loading || !!error} 
           className="w-full bg-gray-900 text-white font-black py-4 rounded-2xl hover:bg-black transition shadow-lg disabled:opacity-50"
         >
           {loading ? 'Saving...' : 'Set Password & Login'}

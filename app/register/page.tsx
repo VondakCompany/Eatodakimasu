@@ -1,31 +1,30 @@
-// /app/register/page.tsx
 'use client';
 
-import React, { useState, useEffect, useRef, ChangeEvent, Suspense } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options, menu_items';
-const DAYS = ['月曜日', '火曜日', '水曜日', '木曜日', '金曜日', '土曜日', '日曜日', '祝日'];
+const DAYS = ['', '', '', '', '', '', '', ''];
 const BASELINE_SCHEMA = {
-  pageTitle: "ワセメシ情報ご提供のお願い",
-  pageDescription: "私たちは早稲田大学国際教養学部の「イートチーム」と申します。\n「ワセメシ」の魅力をもっと多くの方に知っていただき、地域のお店と学生・観光客をつなぐ多言語対応のレストラン検索サイト「イートダキマス」を作成しています。\n\n✅ 掲載はすべて無料です\n✅ 頂いた情報を元に、こちらで多言語（英語等）に翻訳して掲載します\n✅ 所要時間は5〜10分程度です",
+  pageTitle: "",
+  pageDescription: "\n\n\n \n \n 510",
   sections: [
     {
       id: "sec_1",
-      title: "1. 店舗の基本情報",
+      title: "1. ",
       description: "",
       blocks: [
-        { id: "b_title", type: "text", label: "店舗名 (🌐 サイト公開)", dbColumn: "title", required: true, placeholder: "例：いねや本館" },
-        { id: "b_address", type: "text", label: "住所 (🌐 サイト公開)", dbColumn: "address", required: false, placeholder: "例：東京都新宿区西早稲田1-2-3" }
+        { id: "b_title", type: "text", label: " ( )", dbColumn: "title", required: true, placeholder: "" },
+        { id: "b_address", type: "text", label: " ( )", dbColumn: "address", required: false, placeholder: "1-2-3" }
       ]
     },
     {
       id: "sec_menu",
-      title: "2. 詳細メニュー",
-      description: "店舗の代表的なメニューを追加してください。",
+      title: "2. ",
+      description: "",
       blocks: [
-        { id: "b_menu_table", type: "menu_builder", label: "詳細メニュー登録", dbColumn: "menu_items", required: false }
+        { id: "b_menu_table", type: "menu_builder", label: "", dbColumn: "menu_items", required: false }
       ]
     }
   ]
@@ -57,17 +56,16 @@ const MenuBuilder = ({ block, onChange, currentValue }: { block: any, onChange: 
       {items.map((item, idx) => (
         <div key={idx} className="flex flex-col sm:flex-row gap-3 p-4 bg-white border border-gray-200 rounded-2xl shadow-sm">
           <div className="flex-1 space-y-3">
-            <input type="text" placeholder="メニュー名 (Name)" value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
-            <textarea placeholder="説明 (Description) - オプション" value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} rows={2} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+            <input type="text" placeholder=" (Name)" value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+            <textarea placeholder=" (Description) - " value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} rows={2} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
           </div>
           <div className="w-full sm:w-32 flex flex-col gap-3">
-            <input type="number" placeholder="価格 (¥)" value={item.price} onChange={e => updateItem(idx, 'price', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
-            <button type="button" onClick={() => removeItem(idx)} className="mt-auto py-3 bg-red-50 text-red-500 font-bold rounded-xl hover:bg-red-100 transition">削除</button>
+            <input type="number" placeholder=" (¥)" value={item.price} onChange={e => updateItem(idx, 'price', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+            <button type="button" onClick={() => removeItem(idx)} className="mt-auto py-3 bg-red-50 text-red-500 font-bold rounded-xl hover:bg-red-100 transition"></button>
           </div>
         </div>
       ))}
       <button type="button" onClick={addItem} className="w-full py-4 border-2 border-dashed border-gray-300 rounded-2xl text-gray-500 font-bold hover:bg-gray-50 hover:border-orange-400 hover:text-orange-500 transition">
-        + メニューを追加
       </button>
     </div>
   );
@@ -131,18 +129,16 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
       {previews.length > 0 ? (
         <div className="bg-gray-50 p-4 rounded-2xl border border-gray-200 shadow-inner">
           <div className="flex justify-between items-end mb-4">
-            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit} 枚アップロード済み</span>
+            <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit}</span>
             {previews.length < maxLimit && (
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">
-                + 画像を追加
-              </button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition"></button>
             )}
           </div>
           <div className={`grid gap-4 ${isMultiple ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:w-48'}`}>
             {previews.map((preview, idx) => (
               <div key={idx} className="relative group aspect-square">
                 <img src={preview.url} alt={`Upload ${idx + 1}`} className="w-full h-full object-cover rounded-xl border border-gray-300 shadow-sm bg-white" />
-                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform">✕</button>
+                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform"></button>
               </div>
             ))}
           </div>
@@ -155,7 +151,7 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
             </svg>
           </div>
           <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
-            タップして画像をアップロード {isMultiple ? `(最大 ${maxLimit} 枚)` : ''}
+            {isMultiple ? `(${maxLimit})` : ''}
           </span>
           {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
         </button>
@@ -164,22 +160,20 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
   );
 };
 
-function RegisterRestaurant() {
+export default function RegisterRestaurant() {
   const searchParams = useSearchParams();
   const urlResetId = searchParams.get('resetId');
   const urlToken = searchParams.get('token');
 
   const [schema, setSchema] = useState<any>(null);
-  const [formData, setFormData] = useState<Record<string, any>>({ hours_source: 'Googleマップと同じ' });
+  const [formData, setFormData] = useState<Record<string, any>>({ hours_source: 'Google' });
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
-  
   const [isUpdateMode, setIsUpdateMode] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [updateTargetId, setUpdateTargetId] = useState<string | null>(null);
-  
   const [selectedTarget, setSelectedTarget] = useState<any>(null);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
@@ -208,14 +202,14 @@ function RegisterRestaurant() {
         const [schemaRes, eventsRes, adsRes] = await Promise.all([
           supabase.from('site_settings').select('data').eq('id', 'registration_schema').maybeSingle(),
           supabase.from('custom_categories').select('*').order('created_at'),
-          supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['*', '/register'])
+          supabase.from('ad_campaigns').select('*').eq('is_active', true).in('target_page', ['', '/register'])
         ]);
 
         if (schemaRes.data?.data?.sections?.length > 0) setSchema(schemaRes.data.data);
         else setSchema(BASELINE_SCHEMA);
 
         if (eventsRes.data) {
-          const today = new Date().toISOString().split('T')[0]; 
+          const today = new Date().toISOString().split('T')[0];
           const validEvents = eventsRes.data.filter(e => {
             if (e.is_constant) return true;
             const start = e.start_date ? e.start_date.split('T')[0] : null;
@@ -258,20 +252,20 @@ function RegisterRestaurant() {
       const res = await fetch('/api/reset-pin', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: urlResetId, token: urlToken, newPin: newResetPin })
+        body: JSON.stringify({ resetId: urlResetId, token: urlToken, newPin: newResetPin })
       });
-      
+
       const json = await res.json();
       setLoading(false);
 
       if (!res.ok) {
-        setPinError(json.error || 'エラーが発生しました。');
+        setPinError(json.error || 'Failed to update PIN');
         return;
       }
 
       setResetSuccess(true);
-    } catch (err) {
-      setPinError('ネットワークエラーが発生しました。');
+    } catch (err: any) {
+      setPinError(err.message || 'Network error');
       setLoading(false);
     }
   };
@@ -299,36 +293,36 @@ function RegisterRestaurant() {
       setLoading(false);
 
       if (!res.ok) {
-        setPinError(json.error || '認証に失敗しました。');
+        setPinError(json.error || '');
         return;
       }
 
       const safeData = json.restaurant;
-      
+
       setUpdateTargetId(selectedTarget.id);
       setSelectedTarget(null);
       setPinInput('');
-      
+
       const newFormData: any = {};
       Object.keys(safeData).forEach(key => {
         if (key !== 'custom_fields' && key !== 'other_options' && key !== 'id') newFormData[key] = safeData[key];
       });
-      
+
       if (safeData.custom_fields) {
-        Object.keys(safeData.custom_fields).forEach(key => { 
-          newFormData[`custom_fields.${key}`] = safeData.custom_fields[key]; 
+        Object.keys(safeData.custom_fields).forEach(key => {
+          newFormData[`custom_fields.${key}`] = safeData.custom_fields[key];
         });
       }
-      
+
       if (!newFormData.hours_source) {
-        newFormData.hours_source = safeData.operating_hours || 'Googleマップと同じ';
+        newFormData.hours_source = safeData.operating_hours || 'Google';
       }
-      
+
       setFormData(newFormData);
       setSelectedEvents(safeData.other_options || []);
 
     } catch (err) {
-      setPinError('通信エラーが発生しました。(Network error)');
+      setPinError('(Network error)');
       setLoading(false);
     }
   };
@@ -349,26 +343,26 @@ function RegisterRestaurant() {
     setMessage('');
 
     if (!isUpdateMode && (!restaurantPin || restaurantPin.length < 4)) {
-      alert("4桁のPINコードを設定してください。(Please set a 4-digit PIN.)");
+      alert("Please set a 4-digit PIN.");
       setLoading(false);
       return;
     }
 
     const payload: any = { status: 'pending', custom_fields: {}, other_options: selectedEvents };
-    
+
     if (isUpdateMode && updateTargetId) {
       payload.custom_fields.update_target_id = updateTargetId;
       payload.custom_fields.update_target_name = searchQuery;
     } else {
-      payload.custom_fields.edit_pin = restaurantPin; 
+      payload.custom_fields.edit_pin = restaurantPin;
     }
-    
+
     for (const key of Object.keys(formData)) {
       if (key === 'id') continue;
       if (key.startsWith('hours_') && key !== 'hours_source') continue;
-      
+
       const value = formData[key];
-      
+
       if (value instanceof File || (Array.isArray(value) && value[0] instanceof File)) {
         const files = Array.isArray(value) ? value : [value];
         const uploadedUrls: string[] = [];
@@ -382,12 +376,12 @@ function RegisterRestaurant() {
             const { data: publicData } = supabase.storage.from('restaurant-images').getPublicUrl(fileName);
             uploadedUrls.push(publicData.publicUrl);
           } catch (uploadErr: any) {
-            setMessage(`画像のアップロードに失敗しました: ${uploadErr.message}`);
+            setMessage(`Error: ${uploadErr.message}`);
             setLoading(false);
             return;
           }
         }
-        
+
         const finalUrlData = key === 'image_urls' ? uploadedUrls : uploadedUrls[0];
         if (key.startsWith('custom_fields.')) payload.custom_fields[key.replace('custom_fields.', '')] = finalUrlData;
         else payload[key] = finalUrlData;
@@ -400,25 +394,25 @@ function RegisterRestaurant() {
 
     let finalHours: any = '';
     const hSource = formData['hours_source'];
-    
-    if (hSource === 'ここで手動で入力する') {
+
+    if (hSource === '') {
       const hoursObj: Record<string, string> = {};
       DAYS.forEach(day => { hoursObj[day] = formData[`hours_${day}`] || ''; });
       finalHours = JSON.stringify(hoursObj);
     } else {
       finalHours = hSource || '';
     }
-    
+
     payload.operating_hours = finalHours;
 
     const { error } = await supabase.from('restaurants').insert([payload]);
 
     setLoading(false);
     if (error) {
-      setMessage(`エラーが発生しました: ${error.message}`);
+      setMessage(`Error: ${error.message}`);
     } else {
-      setMessage('情報が正常に送信されました！ご協力ありがとうございます。');
-      setFormData({ hours_source: 'Googleマップと同じ' });
+      setMessage('');
+      setFormData({ hours_source: 'Google' });
       setSelectedEvents([]);
       setUpdateTargetId(null);
       setSelectedTarget(null);
@@ -440,7 +434,7 @@ function RegisterRestaurant() {
         <label className="block text-sm font-bold text-gray-700 mb-2">
           {block.label} {block.required && <span className="text-red-500">*</span>}
         </label>
-        
+
         {block.type === 'menu_builder' && (
           <MenuBuilder block={block} onChange={(items) => handleInputChange(block.dbColumn, items)} currentValue={formData[block.dbColumn]} />
         )}
@@ -455,7 +449,7 @@ function RegisterRestaurant() {
 
         {block.type === 'select' && (
           <select value={formData[block.dbColumn] || ''} onChange={(e) => handleInputChange(block.dbColumn, e.target.value)} required={block.required} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition cursor-pointer">
-            <option value="" disabled>選択してください</option>
+            <option value="" disabled></option>
             {block.options?.map((opt: string) => <option key={opt} value={opt}>{opt}</option>)}
           </select>
         )}
@@ -487,7 +481,7 @@ function RegisterRestaurant() {
             {DAYS.map((day) => (
               <div key={day} className="flex items-center gap-3">
                 <span className="w-16 text-xs font-bold text-gray-600 text-right">{day}</span>
-                <input type="text" value={formData[`hours_${day}`] || ''} onChange={(e) => handleInputChange(`hours_${day}`, e.target.value)} placeholder="例: 11:00 - 22:00" className="flex-1 p-2 bg-gray-50 border border-gray-100 rounded-xl text-sm outline-none focus:border-orange-300" />
+                <input type="text" value={formData[`hours_${day}`] || ''} onChange={(e) => handleInputChange(`hours_${day}`, e.target.value)} placeholder=": 11:00 - 22:00" className="flex-1 p-2 bg-gray-50 border border-gray-100 rounded-xl text-sm outline-none focus:border-orange-300" />
               </div>
             ))}
           </div>
@@ -518,17 +512,17 @@ function RegisterRestaurant() {
         <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-xl border border-orange-200 max-w-md w-full animate-in zoom-in-95 duration-300 text-center">
           {resetSuccess ? (
             <div>
-              <h2 className="text-2xl font-black text-green-600 mb-4">PIN再設定完了</h2>
-              <p className="text-gray-600 font-bold mb-8">新しいPINコードが正常に保存されました。</p>
+              <h2 className="text-2xl font-black text-green-600 mb-4">PIN Updated</h2>
+              <p className="text-gray-600 font-bold mb-8">Your PIN has been successfully reset.</p>
               <button onClick={() => window.location.href = '/register'} className="w-full bg-orange-600 text-white font-black py-4 rounded-2xl hover:bg-orange-700 transition">
-                店舗の更新へ進む
+                Return to Registration
               </button>
             </div>
           ) : (
             <form onSubmit={handleResetPinSubmit}>
-              <h2 className="text-2xl font-black text-gray-900 mb-2">新しいPINコードの設定</h2>
-              <p className="text-gray-500 text-sm font-bold mb-6">店舗情報を更新するための新しい4桁のPINを入力してください。</p>
-              
+              <h2 className="text-2xl font-black text-gray-900 mb-2">Reset PIN</h2>
+              <p className="text-gray-500 text-sm font-bold mb-6">Enter a new 4-digit PIN</p>
+
               <input
                 type="text"
                 maxLength={4}
@@ -536,14 +530,14 @@ function RegisterRestaurant() {
                 required
                 value={newResetPin}
                 onChange={e => setNewResetPin(e.target.value.replace(/\D/g, ''))}
-                placeholder="例: 1234"
+                placeholder="1234"
                 className="w-full p-4 mb-4 text-center text-3xl tracking-[0.5em] font-black border-2 border-orange-300 rounded-2xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-200"
               />
-              
+
               {pinError && <p className="text-red-500 font-bold text-xs bg-red-50 px-3 py-2 rounded-md mb-4">{pinError}</p>}
-              
+
               <button type="submit" disabled={loading || newResetPin.length < 4} className="w-full bg-orange-600 text-white font-black py-4 rounded-2xl hover:bg-orange-700 shadow-md transition disabled:opacity-50 text-lg">
-                {loading ? '保存中...' : '新しいPINを保存'}
+                {loading ? 'Updating...' : 'Update PIN'}
               </button>
             </form>
           )}
@@ -562,15 +556,15 @@ function RegisterRestaurant() {
 
         <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200">
           <div className="flex flex-wrap gap-4 mb-6 bg-gray-100 p-1.5 rounded-2xl w-fit">
-            <button type="button" onClick={() => { setIsUpdateMode(false); setUpdateTargetId(null); setSelectedTarget(null); setFormData({ hours_source: 'Googleマップと同じ' }); }} className={`px-6 py-2.5 rounded-xl font-black text-sm transition ${!isUpdateMode ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>新規登録</button>
-            <button type="button" onClick={() => setIsUpdateMode(true)} className={`px-6 py-2.5 rounded-xl font-black text-sm transition ${isUpdateMode ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>既存店舗の情報を更新</button>
+            <button type="button" onClick={() => { setIsUpdateMode(false); setUpdateTargetId(null); setSelectedTarget(null); setFormData({ hours_source: 'Google' }); }} className={`px-6 py-2.5 rounded-xl font-black text-sm transition ${!isUpdateMode ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>New Registration</button>
+            <button type="button" onClick={() => setIsUpdateMode(true)} className={`px-6 py-2.5 rounded-xl font-black text-sm transition ${isUpdateMode ? 'bg-white shadow-sm text-gray-900' : 'text-gray-400 hover:text-gray-600'}`}>Update Existing</button>
           </div>
-          
+
           {isUpdateMode && !updateTargetId && !selectedTarget && (
             <div className="relative">
-              <label className="block text-sm font-bold text-gray-700 mb-2">情報を更新する店舗を検索してください:</label>
-              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="店舗名を入力..." className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500" />
-              {isSearching && <div className="text-xs font-bold text-gray-400 mt-2">データベースを検索中...</div>}
+              <label className="block text-sm font-bold text-gray-700 mb-2">Search Restaurant:</label>
+              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="Type name..." className="w-full p-4 bg-gray-50 border border-gray-200 rounded-2xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500" />
+              {isSearching && <div className="text-xs font-bold text-gray-400 mt-2">Searching...</div>}
               {searchResults.length > 0 && (
                 <div className="absolute top-full left-0 right-0 mt-2 bg-white border border-gray-200 shadow-xl rounded-2xl overflow-hidden z-50 max-h-60 overflow-y-auto">
                   {searchResults.map(res => (
@@ -587,7 +581,7 @@ function RegisterRestaurant() {
           {isUpdateMode && selectedTarget && !updateTargetId && (
             <div className="bg-orange-50 border border-orange-200 p-8 rounded-[32px] text-center animate-in zoom-in-95 duration-200">
               <h3 className="text-xl font-black text-orange-900 mb-2">{selectedTarget.title}</h3>
-              <p className="text-orange-700 text-sm font-bold mb-6">情報を更新するには、登録時に設定した4桁のPINコードを入力してください。</p>
+              <p className="text-orange-700 text-sm font-bold mb-6">Enter 4-digit PIN</p>
               <div className="flex flex-col items-center gap-4">
                 <input
                   type="password"
@@ -599,8 +593,8 @@ function RegisterRestaurant() {
                 />
                 {pinError && <p className="text-red-500 font-bold text-xs bg-red-50 px-3 py-1 rounded-md">{pinError}</p>}
                 <div className="flex gap-3 mt-2">
-                  <button type="button" onClick={() => setSelectedTarget(null)} className="px-6 py-3 bg-white text-gray-600 font-bold rounded-xl border border-gray-200 hover:bg-gray-50 transition">キャンセル</button>
-                  <button type="button" onClick={verifyPinAndLoad} disabled={loading || pinInput.length < 4} className="px-6 py-3 bg-orange-600 text-white font-black rounded-xl hover:bg-orange-700 transition shadow-md disabled:opacity-50">認証する</button>
+                  <button type="button" onClick={() => setSelectedTarget(null)} className="px-6 py-3 bg-white text-gray-600 font-bold rounded-xl border border-gray-200 hover:bg-gray-50 transition">Cancel</button>
+                  <button type="button" onClick={verifyPinAndLoad} disabled={loading || pinInput.length < 4} className="px-6 py-3 bg-orange-600 text-white font-black rounded-xl hover:bg-orange-700 transition shadow-md disabled:opacity-50">Verify PIN</button>
                 </div>
               </div>
             </div>
@@ -614,11 +608,11 @@ function RegisterRestaurant() {
                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
                     <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
                   </span>
-                  更新対象の店舗
+                  Editing
                 </div>
                 <div className="font-black text-gray-900 text-lg">{searchQuery}</div>
               </div>
-              <button type="button" onClick={() => { setUpdateTargetId(null); setSelectedTarget(null); setSearchQuery(''); setFormData({ hours_source: 'Googleマップと同じ' }); }} className="text-xs font-bold bg-white text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 shadow-sm transition">変更・キャンセル</button>
+              <button type="button" onClick={() => { setUpdateTargetId(null); setSelectedTarget(null); setSearchQuery(''); setFormData({ hours_source: 'Google' }); }} className="text-xs font-bold bg-white text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 shadow-sm transition">Cancel Update</button>
             </div>
           )}
         </div>
@@ -636,52 +630,16 @@ function RegisterRestaurant() {
             ))}
 
             {!isUpdateMode && (
-              <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200">
-                <h2 className="text-2xl font-black text-gray-900 mb-2 flex items-center gap-2">
-                  <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"></path></svg>
-                  セキュリティ
-                </h2>
-                <p className="text-gray-500 text-sm font-bold mb-6">
-                  次回以降、店舗情報を更新・修正する際に必要な暗証番号を設定してください。<br/>
-                  <span className="text-xs font-medium opacity-80">(今後の店舗情報の更新に必要な4桁のPINコードを設定してください)</span>
-                </p>
-                <div>
-                  <label className="block text-sm font-bold text-gray-700 mb-2">更新用PINコード <span className="text-red-500">*</span></label>
-                  <input
-                    type="text"
-                    maxLength={4}
-                    pattern="\d{4}"
-                    required
-                    value={restaurantPin}
-                    onChange={(e) => setRestaurantPin(e.target.value.replace(/\D/g, ''))}
-                    placeholder="例: 1234"
-                    className="w-full max-w-[200px] p-4 bg-gray-50 border border-gray-200 rounded-2xl font-black text-gray-900 outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 focus:border-orange-500 transition tracking-[0.5em] text-center text-2xl"
-                  />
-                </div>
+              <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200 flex flex-col items-center">
+                <button type="submit" disabled={loading} className="w-full bg-orange-600 text-white font-black py-4 rounded-2xl hover:bg-orange-700 transition shadow-md text-lg disabled:opacity-50">
+                  {loading ? 'Submitting...' : 'Submit Registration'}
+                </button>
+                {message && <p className="mt-4 font-bold text-sm text-red-500">{message}</p>}
               </div>
             )}
-
-            <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200 text-center">
-              {message && (
-                <div className={`p-4 rounded-2xl mb-6 font-bold text-sm ${message.includes('エラー') || message.includes('失敗') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>
-                  {message}
-                </div>
-              )}
-              <button type="submit" disabled={loading} className="w-full md:w-auto px-12 py-5 bg-orange-600 text-white font-black rounded-full hover:bg-orange-700 shadow-xl shadow-orange-600/20 transition-all transform hover:-translate-y-1 disabled:opacity-50 text-lg">
-                {loading ? '送信中...' : '店舗情報を送信する'}
-              </button>
-            </div>
           </form>
         )}
       </div>
     </div>
-  );
-}
-
-export default function RegisterPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-400">読み込み中...</div>}>
-      <RegisterRestaurant />
-    </Suspense>
   );
 }
