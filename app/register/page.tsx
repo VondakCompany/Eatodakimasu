@@ -1,30 +1,30 @@
 'use client';
 
-import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
+import React, { useState, useEffect, useRef, ChangeEvent, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
 
 const SAFE_UPDATE_COLUMNS = 'id, title, description, address, restaurant_price, total_seats, avg_stay_time, takeout_menu, operating_hours, hours_source, image_url, custom_fields, other_options, menu_items';
-const DAYS = ['', '', '', '', '', '', '', ''];
+const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday', 'Holiday'];
 const BASELINE_SCHEMA = {
-  pageTitle: "",
-  pageDescription: "\n\n\n \n \n 510",
+  pageTitle: "Restaurant Registration",
+  pageDescription: "Register your restaurant details below.",
   sections: [
     {
       id: "sec_1",
-      title: "1. ",
+      title: "1. Basic Information",
       description: "",
       blocks: [
-        { id: "b_title", type: "text", label: " ( )", dbColumn: "title", required: true, placeholder: "" },
-        { id: "b_address", type: "text", label: " ( )", dbColumn: "address", required: false, placeholder: "1-2-3" }
+        { id: "b_title", type: "text", label: "Restaurant Name", dbColumn: "title", required: true, placeholder: "" },
+        { id: "b_address", type: "text", label: "Address", dbColumn: "address", required: false, placeholder: "1-2-3" }
       ]
     },
     {
       id: "sec_menu",
-      title: "2. ",
+      title: "2. Menu Items",
       description: "",
       blocks: [
-        { id: "b_menu_table", type: "menu_builder", label: "", dbColumn: "menu_items", required: false }
+        { id: "b_menu_table", type: "menu_builder", label: "Menu", dbColumn: "menu_items", required: false }
       ]
     }
   ]
@@ -56,16 +56,17 @@ const MenuBuilder = ({ block, onChange, currentValue }: { block: any, onChange: 
       {items.map((item, idx) => (
         <div key={idx} className="flex flex-col sm:flex-row gap-3 p-4 bg-white border border-gray-200 rounded-2xl shadow-sm">
           <div className="flex-1 space-y-3">
-            <input type="text" placeholder=" (Name)" value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
-            <textarea placeholder=" (Description) - " value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} rows={2} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+            <input type="text" placeholder="Item Name" value={item.name} onChange={e => updateItem(idx, 'name', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+            <textarea placeholder="Description" value={item.description} onChange={e => updateItem(idx, 'description', e.target.value)} rows={2} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-medium outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
           </div>
           <div className="w-full sm:w-32 flex flex-col gap-3">
-            <input type="number" placeholder=" (¥)" value={item.price} onChange={e => updateItem(idx, 'price', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
-            <button type="button" onClick={() => removeItem(idx)} className="mt-auto py-3 bg-red-50 text-red-500 font-bold rounded-xl hover:bg-red-100 transition"></button>
+            <input type="number" placeholder="Price (¥)" value={item.price} onChange={e => updateItem(idx, 'price', e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl font-bold outline-none focus:bg-white focus:ring-2 focus:ring-orange-500 transition" />
+            <button type="button" onClick={() => removeItem(idx)} className="mt-auto py-3 bg-red-50 text-red-500 font-bold rounded-xl hover:bg-red-100 transition">Remove</button>
           </div>
         </div>
       ))}
       <button type="button" onClick={addItem} className="w-full py-4 border-2 border-dashed border-gray-300 rounded-2xl text-gray-500 font-bold hover:bg-gray-50 hover:border-orange-400 hover:text-orange-500 transition">
+        + Add Item
       </button>
     </div>
   );
@@ -131,14 +132,14 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
           <div className="flex justify-between items-end mb-4">
             <span className="text-xs font-bold text-gray-500">{previews.length} / {maxLimit}</span>
             {previews.length < maxLimit && (
-              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition"></button>
+              <button type="button" onClick={() => fileInputRef.current?.click()} className="text-xs font-bold text-orange-600 bg-orange-50 px-3 py-1.5 rounded-lg hover:bg-orange-100 transition">Add More</button>
             )}
           </div>
           <div className={`grid gap-4 ${isMultiple ? 'grid-cols-2 sm:grid-cols-3' : 'grid-cols-1 sm:w-48'}`}>
             {previews.map((preview, idx) => (
               <div key={idx} className="relative group aspect-square">
                 <img src={preview.url} alt={`Upload ${idx + 1}`} className="w-full h-full object-cover rounded-xl border border-gray-300 shadow-sm bg-white" />
-                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform"></button>
+                <button type="button" onClick={() => removeImage(idx)} className="absolute -top-2 -right-2 bg-red-500 text-white w-7 h-7 flex items-center justify-center rounded-full shadow-md transform scale-0 group-hover:scale-100 transition-transform">×</button>
               </div>
             ))}
           </div>
@@ -151,7 +152,7 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
             </svg>
           </div>
           <span className="font-bold text-sm text-gray-700 group-hover:text-orange-600 transition-colors">
-            {isMultiple ? `(${maxLimit})` : ''}
+            {isMultiple ? `Upload Images (${maxLimit})` : 'Upload Image'}
           </span>
           {block.placeholder && <span className="text-xs mt-2 text-gray-400 font-medium text-center">{block.placeholder}</span>}
         </button>
@@ -160,7 +161,7 @@ const PublicImageUploader = ({ block, onImageSelected, currentValue }: { block: 
   );
 };
 
-export default function RegisterRestaurant() {
+function RegisterRestaurantContent() {
   const searchParams = useSearchParams();
   const urlResetId = searchParams.get('resetId');
   const urlToken = searchParams.get('token');
@@ -411,7 +412,7 @@ export default function RegisterRestaurant() {
     if (error) {
       setMessage(`Error: ${error.message}`);
     } else {
-      setMessage('');
+      setMessage('Submission successful.');
       setFormData({ hours_source: 'Google' });
       setSelectedEvents([]);
       setUpdateTargetId(null);
@@ -592,54 +593,48 @@ export default function RegisterRestaurant() {
                   className="w-32 p-4 text-center text-2xl tracking-[0.5em] font-black border-2 border-orange-300 rounded-2xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-200"
                 />
                 {pinError && <p className="text-red-500 font-bold text-xs bg-red-50 px-3 py-1 rounded-md">{pinError}</p>}
-                <div className="flex gap-3 mt-2">
-                  <button type="button" onClick={() => setSelectedTarget(null)} className="px-6 py-3 bg-white text-gray-600 font-bold rounded-xl border border-gray-200 hover:bg-gray-50 transition">Cancel</button>
-                  <button type="button" onClick={verifyPinAndLoad} disabled={loading || pinInput.length < 4} className="px-6 py-3 bg-orange-600 text-white font-black rounded-xl hover:bg-orange-700 transition shadow-md disabled:opacity-50">Verify PIN</button>
-                </div>
+                <button type="button" onClick={verifyPinAndLoad} disabled={loading || pinInput.length < 4} className="bg-orange-600 text-white font-bold py-3 px-6 rounded-xl hover:bg-orange-700 transition disabled:opacity-50 mt-2">
+                  {loading ? 'Verifying...' : 'Verify PIN'}
+                </button>
               </div>
             </div>
           )}
 
-          {isUpdateMode && updateTargetId && (
-            <div className="bg-orange-50 border border-orange-200 p-5 rounded-[24px] flex flex-wrap justify-between items-center gap-4 animate-in fade-in duration-300">
-              <div>
-                <div className="text-xs font-black text-orange-600 uppercase tracking-widest mb-1 flex items-center gap-2">
-                  <span className="relative flex h-2 w-2">
-                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-75"></span>
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
-                  </span>
-                  Editing
+          {(!isUpdateMode || updateTargetId) && (
+            <form onSubmit={handleSubmit} className="mt-8 space-y-8">
+              {!isUpdateMode && (
+                 <div className="bg-orange-50 border border-orange-200 p-6 rounded-[24px]">
+                   <h3 className="text-lg font-black text-orange-900 mb-2">Create an Edit PIN</h3>
+                   <p className="text-sm text-orange-700 mb-4 font-medium">You will need this 4-digit PIN to update your information later.</p>
+                   <input type="password" maxLength={4} value={restaurantPin} onChange={e => setRestaurantPin(e.target.value.replace(/\D/g, ''))} required placeholder="1234" className="w-32 p-4 text-center text-2xl tracking-[0.5em] font-black border-2 border-orange-300 rounded-2xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-200" />
+                 </div>
+              )}
+
+              {schema.sections?.map((sec: any) => (
+                <div key={sec.id} className="space-y-4">
+                  <h2 className="text-xl font-black text-gray-900 border-b border-gray-200 pb-2">{sec.title}</h2>
+                  {sec.description && <p className="text-sm text-gray-500">{sec.description}</p>}
+                  {sec.blocks?.map((block: any) => renderFormBlock(block))}
                 </div>
-                <div className="font-black text-gray-900 text-lg">{searchQuery}</div>
-              </div>
-              <button type="button" onClick={() => { setUpdateTargetId(null); setSelectedTarget(null); setSearchQuery(''); setFormData({ hours_source: 'Google' }); }} className="text-xs font-bold bg-white text-gray-600 px-4 py-2 rounded-xl border border-gray-200 hover:bg-gray-50 shadow-sm transition">Cancel Update</button>
-            </div>
+              ))}
+              
+              {message && <div className={`p-4 rounded-xl text-center font-bold ${message.includes('Error') ? 'bg-red-50 text-red-600' : 'bg-green-50 text-green-600'}`}>{message}</div>}
+
+              <button type="submit" disabled={loading} className="w-full bg-orange-600 text-white font-black py-4 rounded-2xl hover:bg-orange-700 shadow-md transition disabled:opacity-50 text-lg">
+                {loading ? 'Submitting...' : 'Submit Registration'}
+              </button>
+            </form>
           )}
         </div>
-
-        {(!isUpdateMode || updateTargetId) && (
-          <form onSubmit={handleSubmit} className="space-y-8 animate-in slide-in-from-bottom-4 duration-500">
-            {schema.sections.map((section: any) => (
-              <div key={section.id} className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200">
-                <h2 className="text-2xl font-black text-gray-900 mb-2">{section.title}</h2>
-                {section.description && <p className="text-gray-500 text-sm font-bold mb-8">{section.description}</p>}
-                <div className="space-y-8">
-                  {section.blocks.map((block: any) => renderFormBlock(block))}
-                </div>
-              </div>
-            ))}
-
-            {!isUpdateMode && (
-              <div className="bg-white p-8 md:p-10 rounded-[40px] shadow-sm border border-gray-200 flex flex-col items-center">
-                <button type="submit" disabled={loading} className="w-full bg-orange-600 text-white font-black py-4 rounded-2xl hover:bg-orange-700 transition shadow-md text-lg disabled:opacity-50">
-                  {loading ? 'Submitting...' : 'Submit Registration'}
-                </button>
-                {message && <p className="mt-4 font-bold text-sm text-red-500">{message}</p>}
-              </div>
-            )}
-          </form>
-        )}
       </div>
     </div>
+  );
+}
+
+export default function RegisterRestaurant() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-gray-50 flex items-center justify-center p-4 font-bold text-gray-500">Loading registration form...</div>}>
+      <RegisterRestaurantContent />
+    </Suspense>
   );
 }
